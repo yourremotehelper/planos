@@ -14,6 +14,8 @@ class Visor {
     this.pendiente = false;
     this.alCambiarVista = null; // aviso para la escala gráfica
     this.capasEncima = [];      // herramientas que dibujan encima (zonas, estancias, cotas)
+    this.verEscaneo = true;     // ocultarlo deja solo el plano dibujado
+    this.imprimiendo = false;
 
     this.prepararEventos();
     new ResizeObserver(() => this.redibujar()).observe(lienzo);
@@ -166,15 +168,35 @@ class Visor {
     if (W === 0 || H === 0) return;
     if (this.lienzo.width !== W || this.lienzo.height !== H) { this.lienzo.width = W; this.lienzo.height = H; }
     if (!this.datos) { this.ctx.clearRect(0, 0, W, H); return; }
+    this.renderizar(this.ctx, W, H, dpr);
+    if (this.alCambiarVista) this.alCambiarVista(this.vista);
+  }
 
+  // Dibuja todo en un contexto cualquiera (pantalla o imagen para el informe).
+  // W, H en píxeles reales; dpr = píxeles reales por píxel CSS.
+  renderizar(ctx, W, H, dpr, opciones = {}) {
     const s = this.vista.escala * dpr, ox = this.vista.ox * dpr, oy = this.vista.oy * dpr;
-    const ctx = this.ctx;
+    const escaneo = opciones.escaneo ?? this.verEscaneo;
+    const tenue = opciones.tenue ?? false;
 
-    // Capa 1: fondo blanco + suelo escaneado en gris muy claro
+    // Capa 1: fondo blanco + superficie escaneada en gris muy claro
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, W, H);
+    if (escaneo) this.pintarEscaneo(ctx, W, H, s, ox, oy, tenue);
+
+    // Capa 3: lo que dibujen otras herramientas (plano, estancias, cotas…), en px CSS
+    if (this.capasEncima.length) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      for (const capa of this.capasEncima) capa.dibujar(ctx);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+  }
+
+  pintarEscaneo(ctx, W, H, s, ox, oy, tenue) {
     const su = this.capaSuelo;
+    ctx.save();
+    if (tenue) ctx.globalAlpha = 0.5;
     ctx.imageSmoothingEnabled = s * su.res < 4; // a poco zoom suavizado; a mucho, bordes nítidos
     ctx.drawImage(su.lienzo, ox, oy - su.H * su.res * s, su.W * su.res * s, su.H * su.res * s);
 
@@ -213,16 +235,9 @@ class Visor {
     }
     cp.putImageData(img, 0, 0);
     ctx.imageSmoothingEnabled = false;
+    if (tenue) ctx.globalAlpha = 0.3;
     ctx.drawImage(this.capaParedes, 0, 0);
-
-    // Capa 3: lo que dibujen otras herramientas (cotas, etc.), en px CSS
-    if (this.capasEncima.length) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      for (const capa of this.capasEncima) capa.dibujar(ctx);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-
-    if (this.alCambiarVista) this.alCambiarVista(this.vista);
+    ctx.restore();
   }
 
   contar(capa, W, H, s, ox, oy) {
@@ -252,14 +267,31 @@ class Visor {
     // Un "clic" es pulsar y soltar sin apenas moverse; si se mueve, es arrastrar.
     let inicioToque = null;
 
+    // Arrastre de un elemento (lo decide alPulsar): mientras dura no se mueve la planta
+    let externo = null;
+
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== undefined && e.button > 0) return; // solo botón principal
       el.setPointerCapture(e.pointerId);
       this.punteros.set(e.pointerId, pos(e));
       inicioToque = this.punteros.size === 1 ? { ...pos(e), movido: false } : null;
+      if (this.punteros.size === 1 && this.alPulsar && this.alPulsar(pos(e), e)) {
+        externo = { id: e.pointerId, inicio: pos(e), movido: false };
+      } else if (externo) {
+        // segundo dedo: se cancela el arrastre del elemento
+        if (this.alSoltarArrastre) this.alSoltarArrastre(null, e);
+        externo = null;
+      }
     });
 
     el.addEventListener('pointermove', (e) => {
+      if (externo && e.pointerId === externo.id) {
+        const p = pos(e);
+        if (!externo.movido && Math.hypot(p.x - externo.inicio.x, p.y - externo.inicio.y) < 4) return;
+        externo.movido = true;
+        if (this.alArrastrar) this.alArrastrar(p, e);
+        return;
+      }
       if (!this.punteros.has(e.pointerId)) {
         // ratón moviéndose sin pulsar: avisar (para la vista previa del imán)
         if (this.alMoverCursor) this.alMoverCursor(pos(e), e);
@@ -292,6 +324,12 @@ class Visor {
 
     const soltar = (e, cancelado) => {
       if (!this.punteros.has(e.pointerId)) return;
+      if (externo && e.pointerId === externo.id) {
+        this.punteros.delete(e.pointerId);
+        externo = null; inicioToque = null;
+        if (this.alSoltarArrastre) this.alSoltarArrastre(pos(e), e);
+        return;
+      }
       this.punteros.delete(e.pointerId);
       if (this.punteros.size > 0) { inicioToque = null; return; }
       el.classList.remove('arrastrando');

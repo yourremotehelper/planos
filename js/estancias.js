@@ -14,6 +14,8 @@ class Estancias {
     this.seleccion = null;  // id
     this.siguienteId = 1;
     this.alCambiar = null;
+    this.obtenerHuecos = () => [];   // lo conecta app.js con el plano
+    this.alAntesDeCambiar = null;    // para el historial de deshacer
   }
 
   avisar() { if (this.alCambiar) this.alCambiar(this); }
@@ -65,6 +67,7 @@ class Estancias {
     if (this.puntos.length < 3) return;
     const puntos = this.puntos.map(({ x, y }) => ({ x, y }));
     this.puntos = [];
+    if (this.alAntesDeCambiar) this.alAntesDeCambiar();
     const e = this.crear(puntos);
     this.seleccion = e.id;
     this.visor.redibujar();
@@ -84,7 +87,32 @@ class Estancias {
   recalcular(e) {
     e.area = areaPoligono(e.puntos);
     e.perimetro = perimetroPoligono(e.puntos);
-    e.m2Paredes = e.perimetro * e.altura;
+    e.m2Paredes = e.perimetro * e.altura;            // bruto
+    // Puertas y ventanas en los lados de la estancia (las que quedan en la reforma: no las de derribo)
+    e.m2Huecos = 0; e.mlPuertas = 0; e.nPuertas = 0; e.nVentanas = 0;
+    for (const h of this.obtenerHuecos()) {
+      if (h.estado === 'derribo' || !huecoEnEstancia(h, e.puntos)) continue;
+      const ancho = Math.hypot(h.b.x - h.a.x, h.b.y - h.a.y);
+      e.m2Huecos += ancho * Math.min(h.alto, Math.max(0, e.altura - (h.antepecho || 0)));
+      if (h.tipo === 'puerta') { e.mlPuertas += ancho; e.nPuertas++; } else e.nVentanas++;
+    }
+    e.m2ParedesNetas = Math.max(0, e.m2Paredes - e.m2Huecos);
+    e.mlRodapie = Math.max(0, e.perimetro - e.mlPuertas);
+  }
+
+  recalcularTodas() { for (const e of this.lista) this.recalcular(e); }
+
+  // Para deshacer/rehacer y guardar
+  serializar() {
+    return {
+      siguienteId: this.siguienteId,
+      lista: this.lista.map((e) => ({ id: e.id, nombre: e.nombre, puntos: e.puntos.map((q) => ({ x: q.x, y: q.y })), altura: e.altura, alturaAuto: e.alturaAuto })),
+    };
+  }
+  restaurar(d) {
+    this.lista = d.lista.map((e) => { const n = { ...e, puntos: e.puntos.map((q) => ({ ...q })) }; this.recalcular(n); return n; });
+    this.siguienteId = d.siguienteId;
+    if (this.seleccion && !this.lista.some((e) => e.id === this.seleccion)) this.seleccion = null;
   }
 
   // Altura de techo dentro de la estancia: la altura con más puntos por encima de 1,8 m
@@ -114,13 +142,16 @@ class Estancias {
 
   renombrar(id, nombre) {
     const e = this.lista.find((q) => q.id === id);
+    if (e && this.alAntesDeCambiar) this.alAntesDeCambiar();
     if (e) { e.nombre = nombre.trim() || e.nombre; this.visor.redibujar(); this.avisar(); }
   }
   cambiarAltura(id, altura) {
     const e = this.lista.find((q) => q.id === id);
+    if (e && altura > 0.5 && altura < 10 && this.alAntesDeCambiar) this.alAntesDeCambiar();
     if (e && altura > 0.5 && altura < 10) { e.altura = altura; this.recalcular(e); this.visor.redibujar(); this.avisar(); }
   }
   borrar(id) {
+    if (this.alAntesDeCambiar && !this.borrandoDesdeEditor) this.alAntesDeCambiar();
     this.lista = this.lista.filter((q) => q.id !== id);
     if (this.seleccion === id) this.seleccion = null;
     this.visor.redibujar(); this.avisar();
@@ -144,11 +175,12 @@ class Estancias {
 
   // ---------- Pantalla ----------
 
+  // Capa de fondo (relleno y contorno): va debajo de muros y muebles
   dibujar(ctx) {
     const v = this.visor;
-    for (const e of this.lista) this.dibujarEstancia(ctx, e, e.id === this.seleccion);
+    for (const e of this.lista) this.dibujarFondo(ctx, e, !v.imprimiendo && e.id === this.seleccion);
 
-    if (!this.activo) return;
+    if (!this.activo || v.imprimiendo) return;
     const pts = this.puntos.map((q) => v.aPantalla(q.x, q.y));
     if (pts.length) {
       const cur = this.cursor ? v.aPantalla(this.cursor.x, this.cursor.y) : null;
@@ -198,19 +230,30 @@ class Estancias {
     }
   }
 
-  dibujarEstancia(ctx, e, seleccionada) {
+  dibujarFondo(ctx, e, seleccionada) {
     const v = this.visor;
     const pts = e.puntos.map((q) => v.aPantalla(q.x, q.y));
     ctx.save();
     ctx.beginPath();
     pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
     ctx.closePath();
-    ctx.fillStyle = seleccionada ? 'rgba(24,100,171,.22)' : 'rgba(24,100,171,.12)';
+    ctx.fillStyle = seleccionada ? 'rgba(24,100,171,.20)' : (v.imprimiendo ? 'rgba(24,100,171,.06)' : 'rgba(24,100,171,.10)');
     ctx.fill();
     ctx.strokeStyle = seleccionada ? '#d9480f' : COLOR_ESTANCIA;
-    ctx.lineWidth = seleccionada ? 3 : 2;
+    ctx.lineWidth = seleccionada ? 3 : (v.imprimiendo ? 1 : 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  // Capa de etiquetas (cotas de los lados, nombre y m²): va encima de todo
+  dibujarEtiquetas(ctx) {
+    const v = this.visor;
+    for (const e of this.lista) this.dibujarEstancia(ctx, e, !v.imprimiendo && e.id === this.seleccion);
+  }
+
+  dibujarEstancia(ctx, e, seleccionada) {
+    const v = this.visor;
+    const pts = e.puntos.map((q) => v.aPantalla(q.x, q.y));
 
     // cota de cada lado
     for (let i = 0; i < pts.length; i++) {
@@ -292,4 +335,22 @@ function dentroPoligono(x, y, p) {
     if ((p[i].y > y) !== (p[j].y > y) && x < ((p[j].x - p[i].x) * (y - p[i].y)) / (p[j].y - p[i].y) + p[i].x) dentro = !dentro;
   }
   return dentro;
+}
+
+// ¿El hueco está en uno de los lados de la estancia? (paralelo y pegado a un lado)
+function huecoEnEstancia(h, puntos) {
+  const mx = (h.a.x + h.b.x) / 2, my = (h.a.y + h.b.y) / 2;
+  const L = Math.hypot(h.b.x - h.a.x, h.b.y - h.a.y) || 1;
+  const ux = (h.b.x - h.a.x) / L, uy = (h.b.y - h.a.y) / L;
+  for (let i = 0; i < puntos.length; i++) {
+    const A = puntos[i], B = puntos[(i + 1) % puntos.length];
+    const Ll = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+    const vx = (B.x - A.x) / Ll, vy = (B.y - A.y) / Ll;
+    if (Math.abs(ux * vx + uy * vy) < Math.cos((10 * Math.PI) / 180)) continue; // no paralelo
+    const t = (mx - A.x) * vx + (my - A.y) * vy;
+    if (t < 0 || t > Ll) continue;
+    const d = Math.abs((mx - A.x) * -vy + (my - A.y) * vx);
+    if (d <= h.grosor + 0.15) return true;
+  }
+  return false;
 }

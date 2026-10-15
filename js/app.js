@@ -1,4 +1,4 @@
-// Pantalla principal: carga del escaneo, herramientas, paneles y guardar/cargar trabajo.
+// Pantalla principal: carga del escaneo, herramientas, paneles, presupuesto y guardar/cargar trabajo.
 
 const MAX_PUNTOS = 3000000; // puntos que nos quedamos para trabajar con fluidez
 
@@ -6,15 +6,49 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n, dec = 0) => n.toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const filasHTML = (filas) => filas.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = (t) => parseFloat(String(t).replace(',', '.'));
 
-const estado = { escaneo: null, herramienta: null }; // herramienta: null | 'medir' | 'estancia'
+const estado = { escaneo: null, sinGuardar: false, paletaPlegada: false };
+
+// ---------- Piezas ----------
 
 const visor = new Visor($('lienzo'));
 const iman = new Iman(visor);
 const superficie = new CapaSuperficie(visor);
 const estancias = new Estancias(visor, iman);
 const medicion = new Medicion(visor, iman);
-visor.capasEncima = [superficie, estancias, medicion]; // orden de dibujo
+const plano = new Plano(visor);
+const editor = new Editor({ visor, plano, iman, estancias, medicion, superficie });
+const presupuesto = new Presupuesto({ plano, estancias });
+visor.capasEncima = [superficie, estancias, plano, { dibujar: (ctx) => estancias.dibujarEtiquetas(ctx) }, medicion, editor]; // orden de dibujo
+
+// Historial de deshacer: una "foto" de todo lo editable
+plano.capturar = () => ({
+  plano: plano.serializar(), estancias: estancias.serializar(), cotas: JSON.parse(JSON.stringify(medicion.cotas)),
+});
+plano.restaurar = (s) => {
+  plano.cargarDatos(s.plano);
+  estancias.restaurar(s.estancias);
+  medicion.cotas = s.cotas;
+  if (editor.sel && !editor.elementoSel()) editor.sel = null;
+};
+estancias.alAntesDeCambiar = () => plano.guardar();
+medicion.alAntesDeCambiar = () => plano.guardar();
+estancias.obtenerHuecos = () => plano.huecos;
+
+const marcarCambio = () => { estado.sinGuardar = true; };
+plano.alCambiar = () => { estancias.recalcularTodas(); marcarCambio(); actualizarSuperficies(); actualizarPresupuesto(); actualizarPropiedades(); };
+estancias.alCambiar = () => { marcarCambio(); presupuesto.limpiarEstancias(); actualizarHerramientas(); actualizarSuperficies(); actualizarPresupuesto(); };
+medicion.alCambiar = () => { marcarCambio(); actualizarHerramientas(); };
+superficie.alCambiar = () => { marcarCambio(); actualizarSuperficies(); };
+editor.alCambiar = () => { actualizarHerramientas(); actualizarPropiedades(); };
+presupuesto.alCambiar = () => { marcarCambio(); actualizarPresupuesto(); };
+
+visor.alHacerClic = (p, e) => editor.clic(p, e);
+visor.alMoverCursor = (p, e) => editor.mover(p, e);
+visor.alPulsar = (p, e) => editor.pulsar(p, e);
+visor.alArrastrar = (p, e) => editor.arrastrar(p, e);
+visor.alSoltarArrastre = () => editor.soltar();
 
 // ---------- Cambiar de pantalla ----------
 
@@ -36,10 +70,7 @@ function mostrarVisor() {
 
 function cargar(archivo) {
   if (!archivo) return;
-  if (!archivo.name.toLowerCase().endsWith('.ply')) {
-    mostrarError('El archivo debe tener extensión .ply.');
-    return;
-  }
+  if (!archivo.name.toLowerCase().endsWith('.ply')) { mostrarError('El archivo debe tener extensión .ply.'); return; }
   $('nombreArchivo').textContent = `Leyendo ${archivo.name}…`;
   $('progreso').style.width = '0';
   $('textoProgreso').textContent = '0 %';
@@ -65,16 +96,12 @@ function cargar(archivo) {
       mostrarError(m.mensaje);
     }
   };
-  worker.onerror = (e) => {
-    worker.terminate();
-    mostrarError('Error inesperado al leer: ' + (e.message || 'desconocido'));
-  };
+  worker.onerror = (e) => { worker.terminate(); mostrarError('Error inesperado al leer: ' + (e.message || 'desconocido')); };
   worker.postMessage({ tipo: 'cargar', archivo, maxPuntos: MAX_PUNTOS });
 }
 
 function abrirEnVisor(m) {
   $('nombreEscaneo').textContent = m.nombre;
-
   $('datos').innerHTML = filasHTML([
     ['Archivo', esc(m.nombre)],
     ['Tamaño', `${fmt(m.tamanoMB, 1)} MB`],
@@ -100,38 +127,31 @@ function abrirEnVisor(m) {
   mostrarVisor();
   visor.cargar(m);
   superficie.calcular(m, visor.malla);
-  medicion.borrarTodo();
+  medicion.cotas = [];
   estancias.borrarTodo();
-  elegirHerramienta(null);
-  actualizarSuperficies();
+  plano.limpiar();
+  plano.alturaPorDefecto = Math.round((m.techo || 2.5) * 100) / 100;
+  editor.elegir(null);
+  actualizarTodo();
   estado.sinGuardar = false;
-  console.log('Escaneo procesado', m, 'superficie', superficie.datos);
 }
 
-function mostrarError(texto) {
-  $('textoError').textContent = texto;
-  mostrarCarga('zonaError');
+function mostrarError(texto) { $('textoError').textContent = texto; mostrarCarga('zonaError'); }
+
+function actualizarTodo() {
+  actualizarHerramientas(); actualizarPropiedades(); actualizarSuperficies(); actualizarPresupuesto(); actualizarVista();
 }
 
 // ---------- Altura del corte ----------
 
-function actualizarTextoCorte() {
-  $('valorCorte').value = fmt(parseFloat($('alturaCorte').value), 2);
-}
-$('alturaCorte').addEventListener('input', () => {
-  actualizarTextoCorte();
-  visor.cambiarCorte(parseFloat($('alturaCorte').value));
-});
-
-// Escribir la altura a mano: acepta "1,25" o "1.25"; se aplica con Intro o al salir del campo
+function actualizarTextoCorte() { $('valorCorte').value = fmt(parseFloat($('alturaCorte').value), 2); }
+$('alturaCorte').addEventListener('input', () => { actualizarTextoCorte(); visor.cambiarCorte(parseFloat($('alturaCorte').value)); });
 function aplicarCorteEscrito() {
-  const campo = $('valorCorte');
-  const desliz = $('alturaCorte');
-  let v = parseFloat(campo.value.replace(',', '.'));
+  const campo = $('valorCorte'), desliz = $('alturaCorte');
+  let v = num(campo.value);
   if (Number.isNaN(v)) { actualizarTextoCorte(); return; }
   v = Math.min(parseFloat(desliz.max), Math.max(parseFloat(desliz.min), v));
-  desliz.value = String(v);
-  campo.value = fmt(v, 2);
+  desliz.value = String(v); campo.value = fmt(v, 2);
   visor.cambiarCorte(v);
 }
 $('valorCorte').addEventListener('change', aplicarCorteEscrito);
@@ -146,125 +166,229 @@ $('valorCorte').addEventListener('focus', (e) => e.target.select());
 visor.alCambiarVista = (vista) => {
   const objetivo = 100 / vista.escala;
   const pot = Math.pow(10, Math.floor(Math.log10(objetivo)));
-  const largo = [1, 2, 5, 10].map((k) => k * pot).find((l) => l >= objetivo) || 10 * pot;
-  $('regla').style.width = `${largo * vista.escala}px`;
-  $('textoEscala').textContent = largo >= 1 ? `${fmt(largo)} m` : `${fmt(largo * 100)} cm`;
+  const L = [1, 2, 5, 10].map((k) => k * pot).find((l) => l >= objetivo) || 10 * pot;
+  $('regla').style.width = `${L * vista.escala}px`;
+  $('textoEscala').textContent = L >= 1 ? `${fmt(L)} m` : `${fmt(L * 100)} cm`;
 };
+
+// ---------- Vista del plano (actual / reforma / final) ----------
+
+function actualizarVista() {
+  document.querySelectorAll('#selectorVista button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === plano.vista)));
+}
+$('selectorVista').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  plano.vista = b.dataset.vista;
+  if (editor.sel && ['muro', 'hueco', 'simbolo'].includes(editor.sel.tipo) && !plano.visible(editor.elementoSel())) editor.seleccionar(null);
+  actualizarVista(); actualizarHerramientas();
+  visor.redibujar();
+});
+$('verEscaneo').addEventListener('change', (e) => { visor.verEscaneo = e.target.checked; visor.redibujar(); });
 
 // ---------- Herramientas ----------
 
-function elegirHerramienta(h) {
-  estado.herramienta = h;
-  medicion.activar(h === 'medir');
-  estancias.activar(h === 'estancia');
-  visor.bloquearDobleClic = !!h;
-  visor.lienzo.classList.toggle('modoMedir', !!h);
-  actualizarHerramientas();
-}
+const PISTAS = {
+  '': 'Pulsa un elemento para elegirlo · arrástralo para moverlo',
+  medir: (m) => (m.primero ? 'Pincha en el segundo punto · Esc para cancelar' : 'Pincha en el primer punto · arrastra para moverte'),
+  estancia: () => {
+    const n = estancias.puntos.length;
+    return n === 0 ? 'Pincha en una esquina de la estancia' : n < 3 ? 'Sigue pinchando en las esquinas' : 'Sigue, o pincha en el primer punto (o Intro) para cerrar';
+  },
+  muro: () => (editor.muroA ? 'Pincha el final del tramo · sigue encadenando · Esc para terminar' : 'Pincha donde empieza el muro'),
+  puerta: () => (editor.huecoInicio ? 'Pincha en la otra jamba (o en el mismo sitio para 80 cm)' : 'Pincha en una jamba de la puerta, sobre la pared'),
+  ventana: () => (editor.huecoInicio ? 'Pincha en el otro lado (o en el mismo sitio para 120 cm)' : 'Pincha en un lado de la ventana, sobre la pared'),
+  simbolo: () => (estado.paletaPlegada ? `${SIMBOLOS[editor.simbolo].nombre}: toca donde va · 🛋️ para cambiar` : 'Elige un símbolo y pincha: se pega solo a la pared · R para girar'),
+};
 
 function actualizarHerramientas() {
-  const h = estado.herramienta;
-  $('btnMedir').setAttribute('aria-pressed', String(h === 'medir'));
-  $('btnEstancia').setAttribute('aria-pressed', String(h === 'estancia'));
+  const h = editor.herramienta || '';
+  document.querySelectorAll('#barraHerramientas [data-herramienta]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.herramienta === h)));
   $('btnIman').setAttribute('aria-pressed', String(iman.activo));
-  $('grupoCotas').classList.toggle('oculto', h !== 'medir' || (medicion.cotas.length === 0 && !medicion.primero));
+  $('btnDeshacerGlobal').disabled = !plano.historial.length;
+  $('btnRehacer').disabled = !plano.rehacer.length;
+  $('grupoCotas').classList.toggle('oculto', h !== 'medir' || medicion.cotas.length === 0);
   $('grupoEstancia').classList.toggle('oculto', h !== 'estancia' || estancias.puntos.length === 0);
   $('btnCerrarEstancia').disabled = estancias.puntos.length < 3;
+  $('grupoMuro').classList.toggle('oculto', h !== 'muro');
+  $('grupoSimbolos').classList.toggle('oculto', h !== 'simbolo' || estado.paletaPlegada);
+  document.querySelectorAll('#grupoSimbolos [data-simbolo]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.simbolo === editor.simbolo)));
 
   const pista = $('pista');
-  let texto = '';
-  if (h === 'medir') {
-    texto = medicion.primero ? 'Pincha en el segundo punto · Esc para cancelar' : 'Pincha en el primer punto · arrastra para moverte';
-  } else if (h === 'estancia') {
-    const n = estancias.puntos.length;
-    texto = n === 0 ? 'Pincha en una esquina de la estancia'
-      : n < 3 ? 'Sigue pinchando en las esquinas'
-      : 'Sigue, o pincha en el primer punto (o Intro) para cerrar';
-  }
-  pista.textContent = texto;
+  const f = PISTAS[h];
+  let texto = typeof f === 'function' ? f(medicion) : f;
+  if (h && h !== 'medir' && h !== 'estancia' && h !== 'simbolo' && plano.vista !== 'actual' && !editor.muroA && !editor.huecoInicio) texto += ' · se dibuja como NUEVO';
+  if (h === 'simbolo' && plano.vista !== 'actual') texto += ' · se coloca como NUEVO';
+  if (editor.sel && !h) texto = '';
+  pista.textContent = texto || '';
   pista.classList.toggle('oculto', !texto);
 }
 
-medicion.alCambiar = () => { estado.sinGuardar = true; actualizarHerramientas(); };
-estancias.alCambiar = () => { estado.sinGuardar = true; actualizarHerramientas(); actualizarSuperficies(); };
-superficie.alCambiar = () => { estado.sinGuardar = true; actualizarSuperficies(); };
-
-$('btnMedir').addEventListener('click', () => elegirHerramienta(estado.herramienta === 'medir' ? null : 'medir'));
-$('btnEstancia').addEventListener('click', () => elegirHerramienta(estado.herramienta === 'estancia' ? null : 'estancia'));
+$('barraHerramientas').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-herramienta]');
+  if (!b) return;
+  const h = b.dataset.herramienta || null;
+  // En móvil la paleta se pliega al elegir símbolo; tocar 🛋️ otra vez la vuelve a abrir
+  if (h === 'simbolo' && editor.herramienta === 'simbolo' && estado.paletaPlegada) { estado.paletaPlegada = false; actualizarHerramientas(); return; }
+  estado.paletaPlegada = false;
+  editor.elegir(editor.herramienta === h ? null : h);
+});
 $('btnIman').addEventListener('click', () => {
   iman.activo = !iman.activo;
-  medicion.cursor = null; estancias.cursor = null;
-  visor.redibujar();
-  actualizarHerramientas();
+  medicion.cursor = null; estancias.cursor = null; editor.cursor = null;
+  visor.redibujar(); actualizarHerramientas();
 });
-$('btnDeshacer').addEventListener('click', () => medicion.deshacer());
-$('btnBorrarCotas').addEventListener('click', () => {
-  if (medicion.cotas.length <= 1 || confirm(`¿Borrar las ${medicion.cotas.length} cotas?`)) medicion.borrarTodo();
-});
+$('btnDeshacerGlobal').addEventListener('click', () => { deshacer(); });
+$('btnRehacer').addEventListener('click', () => { plano.rehacerCambio(); actualizarTodo(); });
+$('btnBorrarCotas').addEventListener('click', () => { plano.guardar(); medicion.borrarTodo(); });
 $('btnCerrarEstancia').addEventListener('click', () => estancias.cerrar());
 $('btnDeshacerPunto').addEventListener('click', () => estancias.deshacerPunto());
 $('btnCancelarEstancia').addEventListener('click', () => estancias.cancelar());
+$('grosorMuro').addEventListener('change', (e) => { editor.grosorMuro = num(e.target.value); });
+$('btnTerminarMuro').addEventListener('click', () => { editor.muroA = null; editor.avisar(); });
 
-// Clics y movimiento sobre la planta: van a la herramienta activa
-visor.alHacerClic = (p, e) => {
-  if (estado.herramienta === 'medir') return medicion.clic(p, e);
-  if (estado.herramienta === 'estancia') return estancias.clic(p, e);
-  // Sin herramienta: seleccionar estancia, o (con zonas visibles) incluir/excluir zona
-  const est = estancias.estanciaEn(p);
-  if (est) { estancias.seleccionar(est.id); abrirPanel('panelSuperficies'); return; }
-  estancias.seleccionar(null);
-  if (superficie.visible) {
-    const z = superficie.zonaEn(p);
-    if (z) superficie.alternar(z);
+function deshacer() {
+  // primero, lo que esté a medias en la herramienta; si no, el último cambio
+  if (editor.herramienta === 'estancia' && estancias.puntos.length) return estancias.deshacerPunto();
+  if (editor.herramienta === 'medir' && medicion.primero) return medicion.cancelar();
+  if (editor.muroA) { editor.muroA = null; return editor.avisar(); }
+  if (editor.huecoInicio) { editor.huecoInicio = null; return editor.avisar(); }
+  plano.deshacer();
+  actualizarTodo();
+}
+
+// Paleta de símbolos (con miniatura dibujada)
+(function crearPaleta() {
+  const cont = $('grupoSimbolos');
+  const grupos = [...new Set(BIBLIOTECA.map((s) => s.grupo))];
+  cont.innerHTML = grupos.map((g) => `<div class="grupoPaleta"><span class="tituloPaleta">${g}</span>${BIBLIOTECA.filter((s) => s.grupo === g)
+    .map((s) => `<button class="simbolo" data-simbolo="${s.clave}" title="${s.nombre} (${fmt(s.ancho * 100)} × ${fmt(s.fondo * 100)} cm)"><canvas width="44" height="44"></canvas><span>${s.nombre}</span></button>`).join('')}</div>`).join('');
+  cont.querySelectorAll('[data-simbolo]').forEach((b) => {
+    const def = SIMBOLOS[b.dataset.simbolo];
+    const cv = b.querySelector('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = 44 * dpr; cv.height = 44 * dpr; cv.style.width = '44px'; cv.style.height = '44px';
+    const ctx = cv.getContext('2d');
+    const s = (38 * dpr) / Math.max(def.ancho, def.fondo);
+    ctx.translate(22 * dpr, 22 * dpr); ctx.scale(s, -s);
+    ctx.strokeStyle = '#343a40'; ctx.lineWidth = (1.1 * dpr) / s;
+    pintarSimbolo(ctx, def, def.ancho, def.fondo, dpr / s, '#343a40');
+  });
+  cont.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-simbolo]');
+    if (!b) return;
+    editor.simbolo = b.dataset.simbolo;
+    if (window.innerWidth <= 600) estado.paletaPlegada = true;
+    actualizarHerramientas();
+  });
+})();
+
+// ---------- Propiedades del elemento elegido ----------
+
+const ESTADO_BOTONES = (actual) => `<div class="segmentado estados">${Object.entries(ESTADOS)
+  .map(([k, v]) => `<button data-estado="${k}" aria-pressed="${k === actual}" class="est-${k}">${v.nombre}</button>`).join('')}</div>`;
+
+function actualizarPropiedades() {
+  const panel = $('panelPropiedades');
+  const el = editor.elementoSel();
+  if (!el || editor.herramienta) { panel.classList.add('oculto'); return; }
+  const tipo = editor.sel.tipo;
+  let html = '';
+  const campo = (etq, clave, valor, unidad, extra = '') =>
+    `<label class="prop">${etq}<span><input data-campo="${clave}" value="${fmt(valor, 2)}" inputmode="decimal" ${extra}> ${unidad}</span></label>`;
+
+  if (tipo === 'muro') {
+    html = `<strong>Muro</strong>${ESTADO_BOTONES(el.estado)}
+      ${campo('Largo', 'largo', largo(el.a, el.b), 'm')}
+      ${campo('Grosor', 'grosor', el.grosor * 100, 'cm')}
+      ${campo('Altura', 'altura', el.altura, 'm')}
+      <div class="fila"><span>Grosor hacia</span><div class="segmentado">
+        <button data-lado="1" aria-pressed="${el.lado === 1}" title="A un lado">◧</button>
+        <button data-lado="0" aria-pressed="${el.lado === 0}" title="Centrado">▣</button>
+        <button data-lado="-1" aria-pressed="${el.lado === -1}" title="Al otro lado">◨</button></div></div>`;
+  } else if (tipo === 'hueco') {
+    html = `<strong>${el.tipo === 'puerta' ? 'Puerta' : 'Ventana'}</strong>${ESTADO_BOTONES(el.estado)}
+      ${campo('Ancho', 'ancho', largo(el.a, el.b), 'm')}
+      ${campo('Alto', 'alto', el.alto, 'm')}
+      ${el.tipo === 'ventana' ? campo('Antepecho', 'antepecho', el.antepecho, 'm') : ''}
+      ${el.tipo === 'puerta' ? `<div class="fila"><button class="mini" data-accion="bisagra">⇄ Bisagra</button><button class="mini" data-accion="abre">⇅ Abre hacia</button></div>` : ''}`;
+  } else if (tipo === 'simbolo') {
+    const def = SIMBOLOS[el.clave];
+    html = `<strong>${def ? def.nombre : 'Símbolo'}</strong>${ESTADO_BOTONES(el.estado)}
+      ${campo('Ancho', 'ancho', el.ancho, 'm')}
+      ${campo('Fondo', 'fondo', el.fondo, 'm')}
+      <div class="fila"><button class="mini" data-accion="girar-izq">⟲ 90°</button><button class="mini" data-accion="girar-der">⟳ 90°</button></div>`;
+  } else if (tipo === 'estancia') {
+    html = `<strong>${esc(el.nombre)}</strong><p class="nota">${fmt(el.area, 2)} m² · arrastra los cuadrados azules para corregir las esquinas.</p>`;
+  } else if (tipo === 'cota') {
+    html = `<strong>Cota</strong><p class="nota">${fmt(el.d, 2)} m</p>`;
   }
-};
-visor.alMoverCursor = (p, e) => {
-  if (estado.herramienta === 'medir') medicion.mover(p, e);
-  else if (estado.herramienta === 'estancia') estancias.mover(p, e);
-};
+  html += `<button class="mini peligro" data-accion="borrar">🗑 Borrar</button>`;
+  panel.innerHTML = html;
+  panel.classList.remove('oculto');
+}
+
+$('panelPropiedades').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.estado) editor.cambiar((el) => { el.estado = b.dataset.estado; });
+  if (b.dataset.lado !== undefined) editor.cambiar((el) => { el.lado = Number(b.dataset.lado); });
+  const a = b.dataset.accion;
+  if (a === 'borrar') editor.borrarSeleccion();
+  if (a === 'bisagra') editor.cambiar((el) => { el.bisagra = el.bisagra === 'a' ? 'b' : 'a'; });
+  if (a === 'abre') editor.cambiar((el) => { el.abreLado = -el.abreLado; });
+  if (a === 'girar-izq') editor.girarSeleccion(90);
+  if (a === 'girar-der') editor.girarSeleccion(-90);
+});
+$('panelPropiedades').addEventListener('change', (e) => {
+  const c = e.target.dataset.campo;
+  const v = num(e.target.value);
+  if (!c || Number.isNaN(v) || v <= 0) { actualizarPropiedades(); return; }
+  editor.cambiar((el) => {
+    if (c === 'largo' || (c === 'ancho' && editor.sel.tipo === 'hueco')) {
+      // se conserva el extremo a y la dirección
+      const u = unit(el.a, el.b);
+      if (editor.sel.tipo === 'hueco') { const mid = por(sumar(el.a, el.b), 0.5); el.a = sumar(mid, por(u, -v / 2)); el.b = sumar(mid, por(u, v / 2)); }
+      else el.b = sumar(el.a, por(u, v));
+    } else if (c === 'grosor') el.grosor = v / 100;
+    else el[c] = v;
+  });
+});
+$('panelPropiedades').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+
+// ---------- Teclado ----------
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || $('pantallaVisor').classList.contains('oculto')) return;
-  const h = estado.herramienta;
-  const deshacer = (e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey);
-  if (e.key === 'Escape') {
-    if (h === 'medir' && medicion.primero) medicion.cancelar();
-    else if (h === 'estancia' && estancias.puntos.length) estancias.cancelar();
-    else elegirHerramienta(null);
-  } else if (e.key === 'Enter' && h === 'estancia') {
-    estancias.cerrar();
-  } else if (deshacer || (e.key === 'Backspace' && h)) {
-    e.preventDefault();
-    if (h === 'estancia') estancias.deshacerPunto(); else if (h === 'medir') medicion.deshacer();
-  } else if ((e.key === 'Delete' || e.key === 'Supr') && !h && estancias.seleccion) {
-    const est = estancias.lista.find((q) => q.id === estancias.seleccion);
-    if (est && confirm(`¿Borrar la estancia "${est.nombre}"?`)) estancias.borrar(est.id);
-  }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || $('pantallaVisor').classList.contains('oculto')) return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.key === 'Escape') { editor.cancelar(); actualizarHerramientas(); }
+  else if (ctrl && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) { e.preventDefault(); deshacer(); }
+  else if (ctrl && (e.key === 'y' || e.key === 'Y' || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) { e.preventDefault(); plano.rehacerCambio(); actualizarTodo(); }
+  else if (e.key === 'Enter' && editor.herramienta === 'estancia') estancias.cerrar();
+  else if (e.key === 'Enter' && editor.herramienta === 'muro') { editor.muroA = null; editor.avisar(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && !editor.herramienta && editor.sel) { e.preventDefault(); editor.borrarSeleccion(); }
+  else if ((e.key === 'r' || e.key === 'R') && !ctrl) editor.girarSeleccion(e.shiftKey ? -90 : 90);
 });
 
 // ---------- Paneles laterales ----------
 
+const PANELES = ['panelInfo', 'panelSuperficies', 'panelPresupuesto'];
+const BOTON_PANEL = { panelInfo: 'btnInfo', panelSuperficies: 'btnSuperficies', panelPresupuesto: 'btnPresupuesto' };
 function abrirPanel(id) {
-  for (const p of ['panelInfo', 'panelSuperficies']) $(p).classList.toggle('oculto', p !== id);
-  $('btnInfo').classList.toggle('activo', id === 'panelInfo');
-  $('btnSuperficies').classList.toggle('activo', id === 'panelSuperficies');
+  for (const p of PANELES) { $(p).classList.toggle('oculto', p !== id); $(BOTON_PANEL[p]).classList.toggle('activo', p === id); }
 }
 function alternarPanel(id) { abrirPanel($(id).classList.contains('oculto') ? id : null); }
-
 $('btnInfo').addEventListener('click', () => alternarPanel('panelInfo'));
 $('btnSuperficies').addEventListener('click', () => alternarPanel('panelSuperficies'));
+$('btnPresupuesto').addEventListener('click', () => alternarPanel('panelPresupuesto'));
 document.querySelectorAll('[data-cierra]').forEach((b) => b.addEventListener('click', () => abrirPanel(null)));
 
-$('verZonas').addEventListener('change', (e) => {
-  superficie.visible = e.target.checked;
-  visor.redibujar();
-});
+// ---------- Superficies y estancias ----------
+
+$('verZonas').addEventListener('change', (e) => { superficie.visible = e.target.checked; visor.redibujar(); });
 
 function actualizarSuperficies() {
-  // Superficie automática
   $('totalAuto').textContent = superficie.datos ? `${fmt(superficie.total(), 1)} m²` : '—';
-
-  // Tabla de estancias
   const lista = estancias.lista;
   $('sinEstancias').classList.toggle('oculto', lista.length > 0);
   $('tablaEstancias').classList.toggle('oculto', lista.length === 0);
@@ -275,23 +399,22 @@ function actualizarSuperficies() {
       <td>${fmt(e.perimetro, 2)} m</td>
       <td><input class="altura" value="${fmt(e.altura, 2)}" inputmode="decimal" aria-label="Altura de techo"
            title="${e.alturaAuto ? `Medida en el escaneo: ${fmt(e.alturaAuto, 2)} m` : 'No se pudo medir: valor general'}"></td>
-      <td>${fmt(e.m2Paredes, 2)} m²</td>
+      <td title="Bruto ${fmt(e.m2Paredes, 2)} m² − huecos ${fmt(e.m2Huecos || 0, 2)} m²">${fmt(e.m2ParedesNetas ?? e.m2Paredes, 2)} m²</td>
+      <td>${fmt(e.mlRodapie ?? e.perimetro, 2)} m</td>
       <td><button class="borrarFila" title="Borrar estancia" aria-label="Borrar">×</button></td>
     </tr>`).join('');
-  const t = estancias.totales();
+  const t = lista.reduce((s, e) => ({ a: s.a + e.area, p: s.p + e.perimetro, w: s.w + (e.m2ParedesNetas ?? e.m2Paredes), r: s.r + (e.mlRodapie ?? e.perimetro) }), { a: 0, p: 0, w: 0, r: 0 });
   $('totalesEstancias').innerHTML = lista.length > 1
-    ? `<tr><td>Total (${lista.length})</td><td>${fmt(t.area, 2)} m²</td><td>${fmt(t.perimetro, 2)} m</td><td></td><td>${fmt(t.m2Paredes, 2)} m²</td><td></td></tr>`
-    : '';
+    ? `<tr><td>Total (${lista.length})</td><td>${fmt(t.a, 2)} m²</td><td>${fmt(t.p, 2)} m</td><td></td><td>${fmt(t.w, 2)} m²</td><td>${fmt(t.r, 2)} m</td><td></td></tr>` : '';
 }
 
-// Edición en la tabla (delegada)
 $('filasEstancias').addEventListener('change', (e) => {
   const fila = e.target.closest('tr');
   if (!fila) return;
   const id = Number(fila.dataset.id);
   if (e.target.classList.contains('nombre')) estancias.renombrar(id, e.target.value);
   if (e.target.classList.contains('altura')) {
-    const v = parseFloat(e.target.value.replace(',', '.'));
+    const v = num(e.target.value);
     if (!Number.isNaN(v)) estancias.cambiarAltura(id, v); else actualizarSuperficies();
   }
 });
@@ -300,36 +423,113 @@ $('filasEstancias').addEventListener('click', (e) => {
   const fila = e.target.closest('tr');
   if (!fila) return;
   const id = Number(fila.dataset.id);
-  if (e.target.classList.contains('borrarFila')) {
-    const est = estancias.lista.find((q) => q.id === id);
-    if (est && confirm(`¿Borrar la estancia "${est.nombre}"?`)) estancias.borrar(id);
-  } else if (e.target.tagName !== 'INPUT') {
-    estancias.seleccionar(id);
+  if (e.target.classList.contains('borrarFila')) { editor.seleccionar({ tipo: 'estancia', id }); editor.borrarSeleccion(); }
+  else if (e.target.tagName !== 'INPUT') editor.seleccionar({ tipo: 'estancia', id });
+});
+
+// ---------- Presupuesto ----------
+
+function actualizarPresupuesto() {
+  if ($('obra') !== document.activeElement) $('obra').value = presupuesto.obra;
+  const est = estancias.lista;
+  const opcionesUnidad = (sel) => Object.entries(UNIDADES).map(([k, u]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${u.nombre}</option>`).join('');
+  const opcionesSimbolo = (sel) => BIBLIOTECA.map((s) => `<option value="${s.clave}" ${s.clave === sel ? 'selected' : ''}>${s.nombre}</option>`).join('');
+  $('listaPartidas').innerHTML = presupuesto.partidas.map((p) => {
+    const u = UNIDADES[p.unidad] || UNIDADES.ud;
+    const cant = presupuesto.medicion(p);
+    const importe = cant * (p.precio || 0);
+    const dec = u.corto === 'ud' || u.corto === 'PA' ? 0 : 2;
+    const chips = u.porEstancia && est.length ? `<div class="chips">${est.map((e) => {
+      const on = p.estancias === null || p.estancias.includes(e.id);
+      return `<button class="chip" data-chip="${e.id}" aria-pressed="${on}">${esc(e.nombre)}</button>`;
+    }).join('')}</div>` : (u.porEstancia ? '<p class="nota">Dibuja estancias para medir esta partida.</p>' : '');
+    return `<div class="partida ${p.activa ? '' : 'inactiva'}" data-id="${p.id}">
+      <div class="filaPartida">
+        <input type="checkbox" data-p="activa" ${p.activa ? 'checked' : ''} title="Incluir en el presupuesto">
+        <input class="nombrePartida" data-p="nombre" value="${esc(p.nombre)}">
+        <button class="borrarFila" data-p="borrar" title="Quitar partida">×</button>
+      </div>
+      <div class="filaPartida calculo">
+        <select data-p="unidad">${opcionesUnidad(p.unidad)}</select>
+        ${u.conSimbolo ? `<select data-p="simbolo">${opcionesSimbolo(p.simbolo)}</select>` : ''}
+      </div>
+      <div class="filaPartida calculo">
+        ${u.manual ? `<input class="cant" data-p="cantidad" value="${fmt(p.cantidad || (p.unidad === 'pa' ? 1 : 0), dec)}" inputmode="decimal">` : `<span class="cant">${fmt(cant, dec)}</span>`}
+        <span>${u.corto} ×</span>
+        <input class="precio" data-p="precio" value="${fmt(p.precio || 0, 2)}" inputmode="decimal"> <span>€</span>
+        <span class="importe ${p.precio ? '' : 'sinPrecio'}">${p.precio ? fmtEur(importe) : 'sin precio'}</span>
+      </div>
+      ${chips}
+    </div>`;
+  }).join('');
+  const t = presupuesto.totales();
+  $('totalesPresupuesto').innerHTML = `
+    <dt>Base imponible</dt><dd>${fmtEur(t.base)}</dd>
+    <dt>IVA <input id="iva" value="${fmt(presupuesto.iva, 0)}" inputmode="decimal"> %</dt><dd>${fmtEur(t.iva)}</dd>
+    <dt class="total">Total</dt><dd class="total">${fmtEur(t.total)}</dd>`;
+}
+
+$('obra').addEventListener('input', (e) => { presupuesto.obra = e.target.value; marcarCambio(); });
+$('listaPartidas').addEventListener('change', (e) => {
+  const caja = e.target.closest('.partida');
+  if (!caja) return;
+  const p = presupuesto.partidas.find((q) => q.id === Number(caja.dataset.id));
+  const campo = e.target.dataset.p;
+  if (!p || !campo) return;
+  if (campo === 'activa') p.activa = e.target.checked;
+  else if (campo === 'nombre') p.nombre = e.target.value.trim() || p.nombre;
+  else if (campo === 'unidad') { p.unidad = e.target.value; if (p.unidad === 'pa' && !p.cantidad) p.cantidad = 1; }
+  else if (campo === 'simbolo') p.simbolo = e.target.value;
+  else if (campo === 'precio' || campo === 'cantidad') { const v = num(e.target.value); p[campo] = Number.isNaN(v) ? 0 : v; }
+  presupuesto.cambio();
+});
+$('listaPartidas').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+$('listaPartidas').addEventListener('click', (e) => {
+  const caja = e.target.closest('.partida');
+  if (!caja) return;
+  const p = presupuesto.partidas.find((q) => q.id === Number(caja.dataset.id));
+  if (!p) return;
+  if (e.target.dataset.p === 'borrar') { presupuesto.borrar(p.id); return; }
+  const chip = e.target.closest('[data-chip]');
+  if (chip) {
+    const id = Number(chip.dataset.chip);
+    let lista = p.estancias === null ? estancias.lista.map((x) => x.id) : [...p.estancias];
+    lista = lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id];
+    p.estancias = lista.length === estancias.lista.length ? null : lista;
+    presupuesto.cambio();
   }
 });
-$('filasEstancias').addEventListener('focusin', (e) => {
-  const fila = e.target.closest('tr');
-  if (fila && Number(fila.dataset.id) !== estancias.seleccion) {
-    estancias.seleccion = Number(fila.dataset.id);
-    visor.redibujar();
-    document.querySelectorAll('#filasEstancias tr').forEach((r) => r.classList.toggle('sel', r === fila));
-  }
+$('totalesPresupuesto').addEventListener('change', (e) => {
+  if (e.target.id !== 'iva') return;
+  const v = num(e.target.value);
+  presupuesto.iva = Number.isNaN(v) ? 0 : v;
+  presupuesto.cambio();
+});
+$('btnAñadirPartida').addEventListener('click', () => presupuesto.añadir());
+$('btnPartidasEjemplo').addEventListener('click', () => {
+  if (confirm('Se sustituirán tus partidas por las de ejemplo (sin precios). ¿Continuar?')) { presupuesto.restaurarEjemplo(); presupuesto.cambio(); }
+});
+
+// ---------- Imprimir / PDF ----------
+
+$('btnImprimir').addEventListener('click', () => {
+  editor.elegir(null);
+  generarInforme({ visor, plano, estancias, medicion, presupuesto, escaneo: estado.escaneo });
 });
 
 // ---------- Guardar y cargar el trabajo ----------
-// El trabajo se guarda en un archivo .json pequeño. Para seguir otro día:
-// se abre el mismo .ply y se carga el .json.
 
 $('btnGuardar').addEventListener('click', () => {
   const m = estado.escaneo;
   if (!m) return;
   const trabajo = {
-    app: 'escaner-planos', version: 1, fecha: new Date().toISOString(),
+    app: 'escaner-planos', version: 2, fecha: new Date().toISOString(),
     escaneo: { nombre: m.nombre, totalPuntos: m.totalPuntos, angulo: m.angulo, inclinacion: m.inclinacion },
     estancias: estancias.lista.map((e) => ({ nombre: e.nombre, altura: e.altura, puntos: e.puntos })),
     cotas: medicion.cotas,
-    zonas: superficie.datos ? superficie.datos.zonas
-      .filter((z) => z.incluida === z.sinEscanear) // solo las cambiadas a mano
+    plano: plano.serializar(),
+    presupuesto: presupuesto.serializar(),
+    zonas: superficie.datos ? superficie.datos.zonas.filter((z) => z.incluida === z.sinEscanear)
       .map((z) => ({ x: z.etiqueta.x, y: z.etiqueta.y, incluida: z.incluida })) : [],
   };
   const blob = new Blob([JSON.stringify(trabajo, null, 1)], { type: 'application/json' });
@@ -348,53 +548,46 @@ $('archivoTrabajo').addEventListener('change', async (e) => {
   let t;
   try { t = JSON.parse(await archivo.text()); } catch { alert('El archivo no es un trabajo válido.'); return; }
   if (t.app !== 'escaner-planos') { alert('El archivo no es un trabajo de esta herramienta.'); return; }
-
   const m = estado.escaneo;
   const mismo = t.escaneo && t.escaneo.totalPuntos === m.totalPuntos;
-  if (!mismo && !confirm(`Este trabajo se hizo con otro escaneo (${t.escaneo ? t.escaneo.nombre : '?'}). Las estancias pueden no coincidir. ¿Cargarlo igualmente?`)) return;
-  if ((estancias.lista.length || medicion.cotas.length) && !confirm('Se sustituirán las estancias y cotas actuales. ¿Continuar?')) return;
+  if (!mismo && !confirm(`Este trabajo se hizo con otro escaneo (${t.escaneo ? t.escaneo.nombre : '?'}). Puede no coincidir. ¿Cargarlo igualmente?`)) return;
+  if (estado.sinGuardar && !confirm('Se sustituirá lo que tienes dibujado ahora. ¿Continuar?')) return;
 
+  plano.limpiar();
+  if (t.plano) plano.cargarDatos(t.plano);
   estancias.borrarTodo();
-  for (const e of t.estancias || []) estancias.crear(e.puntos, e.nombre, e.altura);
+  for (const x of t.estancias || []) estancias.crear(x.puntos, x.nombre, x.altura);
+  estancias.recalcularTodas();
   medicion.cotas = (t.cotas || []).map((c) => ({ ...c }));
+  if (t.presupuesto) presupuesto.cargarDatos(t.presupuesto);
   if (superficie.datos) {
     for (const z of superficie.datos.zonas) z.incluida = !z.sinEscanear;
-    for (const g of t.zonas || []) {
-      const p = visor.aPantalla(g.x, g.y);
-      const z = superficie.zonaEn(p);
-      if (z) z.incluida = g.incluida;
-    }
+    for (const g of t.zonas || []) { const z = superficie.zonaEn(visor.aPantalla(g.x, g.y)); if (z) z.incluida = g.incluida; }
     superficie.crearImagen();
   }
+  editor.seleccionar(null);
   visor.redibujar();
-  actualizarSuperficies();
-  actualizarHerramientas();
+  actualizarTodo();
   abrirPanel('panelSuperficies');
   estado.sinGuardar = false;
 });
 
-// ---------- Otros botones ----------
+// ---------- Otros ----------
 
 $('btnEncajar').addEventListener('click', () => visor.encajar());
 $('btnOtro').addEventListener('click', () => {
-  if (estado.sinGuardar && !confirm('Se perderán las estancias y cotas no guardadas. ¿Abrir otro escaneo?')) return;
+  if (estado.sinGuardar && !confirm('Se perderá lo dibujado sin guardar. ¿Abrir otro escaneo?')) return;
   $('archivo').value = '';
   mostrarCarga('zonaCarga');
 });
 $('reintentar').addEventListener('click', () => { $('archivo').value = ''; mostrarCarga('zonaCarga'); });
-
-// ---------- Elegir o arrastrar archivo ----------
-
 $('archivo').addEventListener('change', (e) => cargar(e.target.files[0]));
 
-const soltar = $('soltar');
-['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
-  e.preventDefault();
-  soltar.classList.add('activo');
-}));
+const soltarZona = $('soltar');
+['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); soltarZona.classList.add('activo'); }));
 ['dragleave', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => {
   e.preventDefault();
-  if (ev === 'drop' || e.target === document.documentElement) soltar.classList.remove('activo');
+  if (ev === 'drop' || e.target === document.documentElement) soltarZona.classList.remove('activo');
 }));
 document.addEventListener('drop', (e) => {
   const f = e.dataTransfer.files[0];
@@ -403,12 +596,8 @@ document.addEventListener('drop', (e) => {
     const dt = new DataTransfer(); dt.items.add(f);
     $('archivoTrabajo').files = dt.files;
     $('archivoTrabajo').dispatchEvent(new Event('change'));
-  } else {
-    cargar(f);
-  }
+  } else cargar(f);
 });
 
-// Aviso al cerrar la pestaña con trabajo sin guardar
-window.addEventListener('beforeunload', (e) => {
-  if (estado.sinGuardar) { e.preventDefault(); e.returnValue = ''; }
-});
+window.addEventListener('beforeunload', (e) => { if (estado.sinGuardar) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('afterprint', () => { $('informe').innerHTML = ''; });

@@ -13,6 +13,57 @@ class Iman {
   //   1 recta  → "pared": el punto cae sobre la cara de la pared
   //   2 rectas que se cruzan → "esquina": el punto cae en el cruce
   // p: posición en pantalla (px CSS). Devuelve metros + tipo.
+  // Paredes (rectas) que el escaneo muestra alrededor del punto p (px de pantalla)
+  rectasCerca(p, radioPx) {
+    const m = this.visor.aMetros(p.x, p.y);
+    if (!this.visor.indice) return { m, r: 0, R: 0, rectas: [] };
+    const escala = this.visor.vista.escala;
+    const r = Math.min(0.25, Math.max(0.03, radioPx / escala));
+    const R = Math.min(1.2, Math.max(4 * r, 0.9));
+    let pts = this.visor.puntosCerca(m.x, m.y, R);
+    if (pts.length < 8) return { m, r, R, rectas: [] };
+    if (pts.length > 800) {
+      const paso = pts.length / 800;
+      pts = Array.from({ length: 800 }, (_, i) => pts[Math.floor(i * paso)]);
+    }
+    const tol = Math.min(0.02, Math.max(0.012, 1.5 / escala));
+    const rectas = [];
+    let resto = pts;
+    for (let k = 0; k < 4 && resto.length >= 8; k++) {
+      const l = ajustarRecta(resto, tol, R);
+      if (!l || l.n < Math.max(8, pts.length * 0.04)) break;
+      rectas.push(l);
+      resto = resto.filter((q) => distRecta(q, l) > tol * 1.5);
+    }
+    return { m, r, R, rectas };
+  }
+
+  // Final de pared (jamba) cerca de p a lo largo de la dirección u: devuelve el punto
+  // de la línea (base, u) donde acaba la pared, o null.
+  jambaCerca(p, radioPx, base, u) {
+    if (!this.activo) return null;
+    const { m, r, rectas } = this.rectasCerca(p, radioPx);
+    const tCursor = (m.x - base.x) * u.x + (m.y - base.y) * u.y;
+    let mejor = null;
+    for (const l of rectas) {
+      const ang = anguloEntre(l.d, [u.x, u.y]);
+      const cand = [];
+      if (ang < 10) {
+        // pared en la misma dirección: los finales de cada trozo
+        for (const [ta, tb] of l.tramos) for (const t of [ta, tb]) cand.push({ x: l.c[0] + l.d[0] * t, y: l.c[1] + l.d[1] * t });
+      } else if (ang > 60) {
+        // canto de la jamba (perpendicular): dónde corta a la línea
+        cand.push({ x: l.c[0], y: l.c[1] });
+      }
+      for (const q of cand) {
+        const t = (q.x - base.x) * u.x + (q.y - base.y) * u.y;
+        const d = Math.abs(t - tCursor);
+        if (d <= Math.max(r, 0.12) && (!mejor || d < mejor.d)) mejor = { d, t };
+      }
+    }
+    return mejor ? { x: base.x + u.x * mejor.t, y: base.y + u.y * mejor.t, t: mejor.t } : null;
+  }
+
   enganchar(p, radioPx) {
     const m = this.visor.aMetros(p.x, p.y);
     const libre = { x: m.x, y: m.y, tipo: 'libre' };
@@ -150,13 +201,16 @@ function ajustarRecta(pts, tol, radio) {
     l = { c: [cx, cy], d };
   }
   if (!dentro.length) return null;
-  // tramo ocupado por los puntos a lo largo de la recta
-  let t0 = Infinity, t1 = -Infinity;
-  for (const s of dentro) {
-    const t = (s[0] - cx) * d[0] + (s[1] - cy) * d[1];
-    if (t < t0) t0 = t; if (t > t1) t1 = t;
+  // tramo ocupado por los puntos a lo largo de la recta, partido donde hay huecos
+  // (dos trozos de pared alineados a cada lado de una puerta son la misma recta)
+  const ts = dentro.map((s) => (s[0] - cx) * d[0] + (s[1] - cy) * d[1]).sort((a, b) => a - b);
+  const tramos = [];
+  let ini = ts[0];
+  for (let i = 1; i < ts.length; i++) {
+    if (ts[i] - ts[i - 1] > Math.max(0.15, 4 * tol)) { tramos.push([ini, ts[i - 1]]); ini = ts[i]; }
   }
-  return { c: [cx, cy], d, n: dentro.length, t0, t1 };
+  tramos.push([ini, ts[ts.length - 1]]);
+  return { c: [cx, cy], d, n: dentro.length, t0: ts[0], t1: ts[ts.length - 1], tramos };
 }
 
 // Indicador de enganche: cuadrado = pared, círculo = esquina, cruz = punto libre

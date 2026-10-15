@@ -12,6 +12,7 @@ class Medicion {
     this.cursor = null;       // posición enganchada bajo el ratón (vista previa)
     this.activo = false;
     this.alCambiar = null;
+    this.alAntesDeCambiar = null;
   }
 
   activar(si) {
@@ -45,6 +46,7 @@ class Medicion {
         perpendicular = true;
       }
       const d = Math.hypot(b.x - a.x, b.y - a.y);
+      if (d >= 0.01 && this.alAntesDeCambiar) this.alAntesDeCambiar();
       if (d >= 0.01) this.cotas.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, d, perpendicular });
       this.primero = null;
     }
@@ -56,7 +58,7 @@ class Medicion {
   dibujar(ctx) {
     const v = this.visor;
     for (const c of this.cotas) dibujarCota(ctx, v.aPantalla(c.a.x, c.a.y), v.aPantalla(c.b.x, c.b.y), c.d, false);
-    if (!this.activo) return;
+    if (!this.activo || v.imprimiendo) return;
     if (this.primero) {
       const a = v.aPantalla(this.primero.x, this.primero.y);
       if (this.cursor) {
