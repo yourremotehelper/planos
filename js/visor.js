@@ -102,7 +102,48 @@ class Visor {
     this.corte.altura = altura;
     const g = this.corte.grosor / 2;
     this.capaCorte = this.filtrar(altura - g, altura + g, 600000);
+    this.indexarCorte();
     this.redibujar();
+  }
+
+  // Índice por celdas de 10 cm para encontrar rápido los puntos cercanos a un clic
+  indexarCorte() {
+    const res = 0.1;
+    const { x, y } = this.capaCorte;
+    const W = Math.ceil(this.datos.ancho / res) + 3, H = Math.ceil(this.datos.largo / res) + 3;
+    const celda = (i) => {
+      const cx = Math.min(W - 1, Math.max(0, Math.floor(x[i] / res) + 1));
+      const cy = Math.min(H - 1, Math.max(0, Math.floor(y[i] / res) + 1));
+      return cy * W + cx;
+    };
+    const inicio = new Int32Array(W * H + 1);
+    for (let i = 0; i < x.length; i++) inicio[celda(i) + 1]++;
+    for (let c = 0; c < W * H; c++) inicio[c + 1] += inicio[c];
+    const orden = new Int32Array(x.length);
+    const pos = inicio.slice(0, W * H);
+    for (let i = 0; i < x.length; i++) orden[pos[celda(i)]++] = i;
+    this.indice = { res, W, H, inicio, orden };
+  }
+
+  // Puntos del corte a menos de "radio" metros de (px, py) — coordenadas en metros
+  puntosCerca(px, py, radio) {
+    const { res, W, H, inicio, orden } = this.indice;
+    const { x, y } = this.capaCorte;
+    const out = [];
+    const c0x = Math.max(0, Math.floor((px - radio) / res) + 1), c1x = Math.min(W - 1, Math.floor((px + radio) / res) + 1);
+    const c0y = Math.max(0, Math.floor((py - radio) / res) + 1), c1y = Math.min(H - 1, Math.floor((py + radio) / res) + 1);
+    const r2 = radio * radio;
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const c = cy * W + cx;
+        for (let k = inicio[c]; k < inicio[c + 1]; k++) {
+          const i = orden[k];
+          const dx = x[i] - px, dy = y[i] - py;
+          if (dx * dx + dy * dy <= r2) out.push([x[i], y[i]]);
+        }
+      }
+    }
+    return out;
   }
 
   // ---------- Vista ----------
@@ -134,9 +175,12 @@ class Visor {
     this.redibujar();
   }
 
-  // Pantalla → metros (lo usaremos al medir)
+  // Pantalla (px CSS) ↔ metros
   aMetros(px, py) {
     return { x: (px - this.vista.ox) / this.vista.escala, y: (this.vista.oy - py) / this.vista.escala };
+  }
+  aPantalla(x, y) {
+    return { x: this.vista.ox + x * this.vista.escala, y: this.vista.oy - y * this.vista.escala };
   }
 
   // ---------- Dibujo ----------
@@ -203,6 +247,13 @@ class Visor {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.capaParedes, 0, 0);
 
+    // Capa 3: lo que dibujen otras herramientas (cotas, etc.), en px CSS
+    if (this.alDibujarEncima) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.alDibujarEncima(ctx);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
     if (this.alCambiarVista) this.alCambiarVista(this.vista);
   }
 
@@ -230,14 +281,30 @@ class Visor {
       this.zoom(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
     }, { passive: false });
 
+    // Un "clic" es pulsar y soltar sin apenas moverse; si se mueve, es arrastrar.
+    let inicioToque = null;
+
     el.addEventListener('pointerdown', (e) => {
+      if (e.button !== undefined && e.button > 0) return; // solo botón principal
       el.setPointerCapture(e.pointerId);
       this.punteros.set(e.pointerId, pos(e));
-      el.classList.add('arrastrando');
+      inicioToque = this.punteros.size === 1 ? { ...pos(e), movido: false } : null;
     });
 
     el.addEventListener('pointermove', (e) => {
-      if (!this.punteros.has(e.pointerId)) return;
+      if (!this.punteros.has(e.pointerId)) {
+        // ratón moviéndose sin pulsar: avisar (para la vista previa del imán)
+        if (this.alMoverCursor) this.alMoverCursor(pos(e), e);
+        return;
+      }
+      if (inicioToque) {
+        const p = pos(e);
+        if (Math.hypot(p.x - inicioToque.x, p.y - inicioToque.y) > 6) {
+          inicioToque.movido = true;
+          el.classList.add('arrastrando');
+        }
+        if (!inicioToque.movido) return;
+      }
       const antes = [...this.punteros.values()];
       this.punteros.set(e.pointerId, pos(e));
       const ahora = [...this.punteros.values()];
@@ -255,12 +322,22 @@ class Visor {
       }
     });
 
-    const soltar = (e) => {
+    const soltar = (e, cancelado) => {
+      if (!this.punteros.has(e.pointerId)) return;
       this.punteros.delete(e.pointerId);
-      if (this.punteros.size === 0) el.classList.remove('arrastrando');
+      if (this.punteros.size > 0) { inicioToque = null; return; }
+      el.classList.remove('arrastrando');
+      if (!cancelado && inicioToque && !inicioToque.movido && this.alHacerClic) {
+        this.alHacerClic(pos(e), e);
+      }
+      inicioToque = null;
     };
-    el.addEventListener('pointerup', soltar);
-    el.addEventListener('pointercancel', soltar);
-    el.addEventListener('dblclick', (e) => { const p = pos(e); this.zoom(2, p.x, p.y); });
+    el.addEventListener('pointerup', (e) => soltar(e, false));
+    el.addEventListener('pointercancel', (e) => soltar(e, true));
+    el.addEventListener('pointerleave', (e) => { if (this.alMoverCursor && !this.punteros.size) this.alMoverCursor(null, e); });
+    el.addEventListener('dblclick', (e) => {
+      if (this.bloquearDobleClic) return;
+      const p = pos(e); this.zoom(2, p.x, p.y);
+    });
   }
 }

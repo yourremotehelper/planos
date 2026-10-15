@@ -93,6 +93,8 @@ function abrirEnVisor(m) {
 
   mostrarVisor();
   visor.cargar(m);
+  medicion.borrarTodo();
+  actualizarHerramientas();
   console.log('Escaneo procesado', m);
 }
 
@@ -104,12 +106,30 @@ function mostrarError(texto) {
 // ---------- Altura del corte ----------
 
 function actualizarTextoCorte() {
-  $('valorCorte').textContent = `${fmt(parseFloat($('alturaCorte').value), 2)} m`;
+  $('valorCorte').value = fmt(parseFloat($('alturaCorte').value), 2);
 }
 $('alturaCorte').addEventListener('input', () => {
   actualizarTextoCorte();
   visor.cambiarCorte(parseFloat($('alturaCorte').value));
 });
+
+// Escribir la altura a mano: acepta "1,25" o "1.25"; se aplica con Intro o al salir del campo
+function aplicarCorteEscrito() {
+  const campo = $('valorCorte');
+  const desliz = $('alturaCorte');
+  let v = parseFloat(campo.value.replace(',', '.'));
+  if (Number.isNaN(v)) { actualizarTextoCorte(); return; }
+  v = Math.min(parseFloat(desliz.max), Math.max(parseFloat(desliz.min), v));
+  desliz.value = String(v);
+  campo.value = fmt(v, 2);
+  visor.cambiarCorte(v);
+}
+$('valorCorte').addEventListener('change', aplicarCorteEscrito);
+$('valorCorte').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { aplicarCorteEscrito(); e.target.blur(); }
+  if (e.key === 'Escape') { actualizarTextoCorte(); e.target.blur(); }
+});
+$('valorCorte').addEventListener('focus', (e) => e.target.select());
 
 // ---------- Escala gráfica ----------
 // Elige una longitud "redonda" (0,1 · 0,2 · 0,5 · 1 · 2 · 5 · 10 m…) que ocupe unos 80–160 px
@@ -120,6 +140,35 @@ visor.alCambiarVista = (vista) => {
   $('regla').style.width = `${largo * vista.escala}px`;
   $('textoEscala').textContent = largo >= 1 ? `${fmt(largo)} m` : `${fmt(largo * 100)} cm`;
 };
+
+// ---------- Medir ----------
+
+const medicion = new Medicion(visor);
+
+function actualizarHerramientas() {
+  const activo = medicion.activo;
+  $('btnMedir').setAttribute('aria-pressed', String(activo));
+  $('btnIman').setAttribute('aria-pressed', String(medicion.iman));
+  $('grupoCotas').classList.toggle('oculto', medicion.cotas.length === 0 && !medicion.primero);
+  const pista = $('pistaMedir');
+  pista.classList.toggle('oculto', !activo);
+  pista.textContent = medicion.primero
+    ? 'Pincha en el segundo punto · Esc para cancelar'
+    : 'Pincha en el primer punto · arrastra para moverte';
+}
+medicion.alCambiar = actualizarHerramientas;
+
+$('btnMedir').addEventListener('click', () => { medicion.activar(!medicion.activo); actualizarHerramientas(); });
+$('btnIman').addEventListener('click', () => {
+  medicion.iman = !medicion.iman;
+  medicion.cursor = null;
+  visor.redibujar();
+  actualizarHerramientas();
+});
+$('btnDeshacer').addEventListener('click', () => medicion.deshacer());
+$('btnBorrarCotas').addEventListener('click', () => {
+  if (medicion.cotas.length <= 1 || confirm(`¿Borrar las ${medicion.cotas.length} cotas?`)) medicion.borrarTodo();
+});
 
 // ---------- Botones ----------
 
