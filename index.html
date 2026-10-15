@@ -13,8 +13,10 @@
     <div class="acciones oculto" id="accionesVisor">
       <button class="botonBarra" id="btnEncajar" title="Ver la planta entera">Encajar</button>
       <button class="botonBarra" id="btnSuperficies" title="Superficies y estancias">m²</button>
+      <button class="botonBarra" id="btnPresupuesto" title="Presupuesto">€</button>
       <button class="botonBarra" id="btnInfo" title="Datos del escaneo">Datos</button>
-      <button class="botonBarra" id="btnOtro" title="Abrir otro escaneo">Abrir otro</button>
+      <button class="botonBarra" id="btnImprimir" title="Imprimir o guardar en PDF">PDF</button>
+      <button class="botonBarra" id="btnOtro" title="Abrir otro escaneo">Abrir</button>
     </div>
   </header>
 
@@ -23,10 +25,8 @@
     <section class="tarjeta" id="zonaCarga">
       <h2>Abrir nube de puntos</h2>
       <p class="ayuda">Archivo <strong>.ply</strong> exportado de RayStudio (nube de puntos, no malla).</p>
-
       <label class="boton" for="archivo">Elegir archivo .ply</label>
       <input type="file" id="archivo" accept=".ply" hidden>
-
       <div class="soltar" id="soltar">o arrástralo aquí</div>
     </section>
 
@@ -48,26 +48,61 @@
     <canvas id="lienzo"></canvas>
 
     <div class="panelHerramientas">
-      <div class="grupo">
-        <button class="herramienta" id="btnMedir" aria-pressed="false" title="Medir distancias">📏 Medir</button>
-        <button class="herramienta" id="btnEstancia" aria-pressed="false" title="Dibujar una estancia pinchando en sus esquinas">⬠ Estancia</button>
-        <button class="herramienta interruptor" id="btnIman" aria-pressed="true" title="Engancha los puntos a paredes y esquinas">🧲 Imán</button>
+      <div class="grupo" id="barraHerramientas">
+        <button class="herramienta" data-herramienta="" aria-pressed="true" title="Seleccionar y mover (Esc)">🖱️ <span>Elegir</span></button>
+        <button class="herramienta" data-herramienta="medir" aria-pressed="false" title="Medir distancias">📏 <span>Medir</span></button>
+        <button class="herramienta" data-herramienta="estancia" aria-pressed="false" title="Dibujar una estancia pinchando en sus esquinas">⬠ <span>Estancia</span></button>
+        <button class="herramienta" data-herramienta="muro" aria-pressed="false" title="Dibujar muros">▬ <span>Muro</span></button>
+        <button class="herramienta" data-herramienta="puerta" aria-pressed="false" title="Puerta: pincha en una jamba y en la otra">🚪 <span>Puerta</span></button>
+        <button class="herramienta" data-herramienta="ventana" aria-pressed="false" title="Ventana: pincha en un lado y en el otro">🪟 <span>Ventana</span></button>
+        <button class="herramienta" data-herramienta="simbolo" aria-pressed="false" title="Muebles y sanitarios">🛋️ <span>Símbolos</span></button>
       </div>
+      <div class="grupo">
+        <button class="herramienta interruptor" id="btnIman" aria-pressed="true" title="Engancha a paredes y esquinas">🧲 <span>Imán</span></button>
+        <button class="herramienta" id="btnDeshacerGlobal" title="Deshacer (Ctrl+Z)">↶</button>
+        <button class="herramienta" id="btnRehacer" title="Rehacer (Ctrl+Y)">↷</button>
+      </div>
+
+      <!-- Opciones según herramienta -->
       <div class="grupo oculto" id="grupoCotas">
-        <button class="herramienta" id="btnDeshacer" title="Quitar la última cota (Ctrl+Z)">↶ Deshacer</button>
-        <button class="herramienta" id="btnBorrarCotas">Borrar cotas</button>
+        <button class="herramienta" id="btnBorrarCotas">Borrar todas las cotas</button>
       </div>
       <div class="grupo oculto" id="grupoEstancia">
         <button class="herramienta destacado" id="btnCerrarEstancia" title="Cerrar la estancia (Intro)">✓ Cerrar</button>
-        <button class="herramienta" id="btnDeshacerPunto" title="Quitar el último punto (Ctrl+Z)">↶ Punto</button>
+        <button class="herramienta" id="btnDeshacerPunto" title="Quitar el último punto">↶ Punto</button>
         <button class="herramienta" id="btnCancelarEstancia" title="Cancelar (Esc)">Cancelar</button>
       </div>
+      <div class="grupo oculto" id="grupoMuro">
+        <label class="opcion">Grosor
+          <select id="grosorMuro">
+            <option value="0.05">5 cm</option><option value="0.07">7 cm</option><option value="0.10" selected>10 cm</option>
+            <option value="0.12">12 cm</option><option value="0.15">15 cm</option><option value="0.20">20 cm</option>
+            <option value="0.25">25 cm</option><option value="0.30">30 cm</option>
+          </select>
+        </label>
+        <button class="herramienta" id="btnTerminarMuro" title="Terminar el tramo (Esc)">Terminar</button>
+      </div>
+      <div class="grupo paleta oculto" id="grupoSimbolos"></div>
+
+      <!-- Propiedades del elemento seleccionado -->
+      <div class="grupo propiedades oculto" id="panelPropiedades"></div>
+
       <p class="pista oculto" id="pista"></p>
     </div>
 
-    <div class="escalaGrafica" id="escalaGrafica">
-      <div class="regla" id="regla"></div>
-      <span id="textoEscala">1 m</span>
+    <div class="pieIzquierda">
+      <div class="escalaGrafica" id="escalaGrafica">
+        <div class="regla" id="regla"></div>
+        <span id="textoEscala">1 m</span>
+      </div>
+      <div class="grupoVista">
+        <div class="segmentado" id="selectorVista" role="group" aria-label="Vista del plano">
+          <button data-vista="actual" aria-pressed="true" title="Lo que hay hoy">Actual</button>
+          <button data-vista="reforma" aria-pressed="false" title="Derribos en amarillo, nuevo en rojo">Reforma</button>
+          <button data-vista="final" aria-pressed="false" title="Cómo queda">Final</button>
+        </div>
+        <label class="casilla pequena"><input type="checkbox" id="verEscaneo" checked> Escaneo</label>
+      </div>
     </div>
 
     <div class="panelCorte">
@@ -98,7 +133,7 @@
       <div class="tablaEstancias oculto" id="tablaEstancias">
         <table>
           <thead>
-            <tr><th>Nombre</th><th>Suelo</th><th>Perím.</th><th>Altura</th><th>Paredes</th><th></th></tr>
+            <tr><th>Nombre</th><th>Suelo</th><th>Perím.</th><th>Altura</th><th title="Paredes sin puertas ni ventanas">Paredes</th><th title="Perímetro sin puertas">Rodapié</th><th></th></tr>
           </thead>
           <tbody id="filasEstancias"></tbody>
           <tfoot id="totalesEstancias"></tfoot>
@@ -108,7 +143,7 @@
       <h3>Superficie automática</h3>
       <p class="cifra"><span id="totalAuto">—</span> <span class="suave">aprox.</span></p>
       <label class="casilla"><input type="checkbox" id="verZonas"> Ver zonas en la planta</label>
-      <p class="nota">Estimación rápida de toda la zona escaneada. Pulsa una zona en la planta para excluirla (p. ej. la calle vista por la puerta) o incluirla. Para presupuestar, usa las estancias dibujadas: son exactas.</p>
+      <p class="nota">Estimación rápida de toda la zona escaneada. Con las zonas visibles y la herramienta <strong>Elegir</strong>, pulsa una zona para excluirla o incluirla. Para presupuestar, usa las estancias dibujadas: son exactas.</p>
 
       <h3>Trabajo</h3>
       <div class="filaBotones">
@@ -117,13 +152,35 @@
         <input type="file" id="archivoTrabajo" accept=".json" hidden>
       </div>
     </aside>
+
+    <!-- Panel: presupuesto -->
+    <aside class="panelLateral ancho oculto" id="panelPresupuesto">
+      <button class="cerrar" data-cierra="panelPresupuesto" aria-label="Cerrar">×</button>
+      <h3>Presupuesto</h3>
+      <label class="campo">Obra / cliente <input type="text" id="obra" placeholder="p. ej. Reforma baño · C/ Aragón 12"></label>
+      <div id="listaPartidas"></div>
+      <div class="filaBotones">
+        <button class="boton secundario pequeno" id="btnAñadirPartida">+ Añadir partida</button>
+        <button class="boton secundario pequeno" id="btnPartidasEjemplo" title="Volver a las partidas de ejemplo">Partidas de ejemplo</button>
+      </div>
+      <dl class="totales" id="totalesPresupuesto"></dl>
+      <p class="nota">Las partidas y precios se guardan en este dispositivo y dentro de cada trabajo. Las de ejemplo no llevan precio: pon los tuyos.</p>
+    </aside>
   </section>
+
+  <!-- Informe para imprimir / PDF -->
+  <section id="informe"></section>
 
   <script src="js/superficie.js"></script>
   <script src="js/visor.js"></script>
   <script src="js/iman.js"></script>
   <script src="js/medir.js"></script>
   <script src="js/estancias.js"></script>
+  <script src="js/simbolos.js"></script>
+  <script src="js/modelo.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/presupuesto.js"></script>
+  <script src="js/informe.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
