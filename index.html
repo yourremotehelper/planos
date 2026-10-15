@@ -12,6 +12,7 @@
     <span class="paso" id="nombreEscaneo">Abrir un escaneo</span>
     <div class="acciones oculto" id="accionesVisor">
       <button class="botonBarra" id="btnEncajar" title="Ver la planta entera">Encajar</button>
+      <button class="botonBarra" id="btnCapas" title="Capas: mostrar, ocultar y bloquear">Capas</button>
       <button class="botonBarra" id="btnSuperficies" title="Superficies y estancias">m²</button>
       <button class="botonBarra" id="btnPresupuesto" title="Presupuesto">€</button>
       <button class="botonBarra" id="btnInfo" title="Datos del escaneo">Datos</button>
@@ -101,7 +102,7 @@
           <button data-vista="reforma" aria-pressed="false" title="Derribos en amarillo, nuevo en rojo">Reforma</button>
           <button data-vista="final" aria-pressed="false" title="Cómo queda">Final</button>
         </div>
-        <label class="casilla pequena"><input type="checkbox" id="verEscaneo" checked> Escaneo</label>
+        <label class="casilla pequena" title="Capa Escaneo"><input type="checkbox" id="verEscaneo" checked> Escaneo</label>
       </div>
     </div>
 
@@ -122,6 +123,15 @@
       <h3>Ajuste automático</h3>
       <dl class="datos" id="ajuste"></dl>
       <p class="aviso oculto" id="avisoSuelo"></p>
+    </aside>
+
+    <!-- Panel: capas -->
+    <aside class="panelLateral oculto" id="panelCapas">
+      <button class="cerrar" data-cierra="panelCapas" aria-label="Cerrar">×</button>
+      <h3>Capas</h3>
+      <p class="nota">👁 oculta una capa (tampoco sale en el PDF) · 🔒 la bloquea (se ve, pero no se puede elegir ni mover).</p>
+      <ul class="listaCapas" id="listaCapas"></ul>
+      <button class="boton secundario pequeno" id="btnMostrarTodo">Mostrar y desbloquear todo</button>
     </aside>
 
     <!-- Panel: superficies y estancias -->
@@ -168,6 +178,30 @@
     </aside>
   </section>
 
+  <!-- Opciones de exportación -->
+  <dialog id="dialogoExportar" class="dialogo">
+    <form method="dialog">
+      <h3>Exportar PDF</h3>
+      <p class="nota">Solo se exporta lo que está visible en las capas.</p>
+      <fieldset>
+        <legend>Planos</legend>
+        <label class="casilla"><input type="checkbox" name="plano" value="actual"> <span id="etqActual">Estado actual</span></label>
+        <label class="casilla"><input type="checkbox" name="plano" value="reforma"> Reforma (derribos y nuevo en color)</label>
+        <label class="casilla"><input type="checkbox" name="plano" value="final"> Estado final</label>
+      </fieldset>
+      <fieldset>
+        <legend>Tablas</legend>
+        <label class="casilla"><input type="checkbox" name="seccion" value="estancias"> Estancias (superficies)</label>
+        <label class="casilla"><input type="checkbox" name="seccion" value="lados"> Medidas de los lados</label>
+        <label class="casilla"><input type="checkbox" name="seccion" value="presupuesto"> Presupuesto</label>
+      </fieldset>
+      <div class="filaBotones derecha">
+        <button class="boton secundario pequeno" value="cancelar">Cancelar</button>
+        <button class="boton pequeno" value="exportar" id="btnExportar">Exportar PDF</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Informe para imprimir / PDF -->
   <section id="informe"></section>
 
@@ -177,6 +211,7 @@
   <script src="js/medir.js"></script>
   <script src="js/estancias.js"></script>
   <script src="js/simbolos.js"></script>
+  <script src="js/capas.js"></script>
   <script src="js/modelo.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/presupuesto.js"></script>
