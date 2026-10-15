@@ -152,7 +152,12 @@ function detectarTecho(h) {
   }
   let m = 0;
   for (let i = 1; i < nb; i++) if (hist[i] > hist[m]) m = i;
-  return hist[m] > 0 ? desde + (m + 0.5) * res : null;
+  if (!hist[m]) return null;
+  // afinar: media de las alturas dentro del pico (±5 cm)
+  const c = desde + (m + 0.5) * res;
+  let s = 0, k = 0;
+  for (let i = 0; i < h.length; i++) if (Math.abs(h[i] - c) <= 0.05) { s += h[i]; k++; }
+  return s / k;
 }
 
 function percentil(arr, q, muestras = 200000) {

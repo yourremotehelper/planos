@@ -13,6 +13,7 @@ class Visor {
     this.punteros = new Map();
     this.pendiente = false;
     this.alCambiarVista = null; // aviso para la escala gráfica
+    this.capasEncima = [];      // herramientas que dibujan encima (zonas, estancias, cotas)
 
     this.prepararEventos();
     new ResizeObserver(() => this.redibujar()).observe(lienzo);
@@ -22,56 +23,23 @@ class Visor {
 
   cargar(datos) {
     this.datos = datos;
+    this.malla = mallaSuelo(datos);   // superficie interior (suelo o techo visto), ver superficie.js
     this.capaSuelo = this.crearSuelo();
     this.cambiarCorte(this.corte.altura);
     this.encajar();
   }
 
-  // Suelo como cuadrícula de 5 cm: celda con puntos de suelo = escaneada.
+  // Fondo gris claro = superficie interior detectada.
   // Se guarda como una imagen pequeña (1 píxel = 5 cm) que luego se escala.
   crearSuelo() {
-    const res = 0.05;
-    const { x, y, h, ancho, largo } = this.datos;
-    const W = Math.ceil(ancho / res) + 2, H = Math.ceil(largo / res) + 2;
-    let celdas = new Uint8Array(W * H);
-    for (let i = 0; i < h.length; i++) {
-      if (h[i] < -0.05 || h[i] > 0.08) continue;
-      const cx = Math.floor(x[i] / res), cy = Math.floor(y[i] / res);
-      if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
-      celdas[cy * W + cx] = 1;
-    }
-    // Cerrar huecos pequeños: ensanchar 10 cm y volver a encoger 10 cm.
-    // Los huecos de hasta ~20 cm se tapan; el contorno queda en su sitio.
-    const vecinos = (src, cond) => {
-      const out = new Uint8Array(W * H);
-      for (let cy = 0; cy < H; cy++) {
-        for (let cx = 0; cx < W; cx++) {
-          let n = 0, total = 0;
-          for (let dy = -1; dy <= 1; dy++) {
-            const yy = cy + dy;
-            if (yy < 0 || yy >= H) continue;
-            for (let dx = -1; dx <= 1; dx++) {
-              const xx = cx + dx;
-              if (xx < 0 || xx >= W) continue;
-              total++; n += src[yy * W + xx];
-            }
-          }
-          out[cy * W + cx] = cond(n, total) ? 1 : 0;
-        }
-      }
-      return out;
-    };
-    const ensanchar = (src) => vecinos(src, (n) => n > 0);
-    const encoger = (src) => vecinos(src, (n, total) => n === total);
-    celdas = encoger(encoger(ensanchar(ensanchar(celdas))));
-
+    const { W, H, res, suelo } = this.malla;
     const lienzo = document.createElement('canvas');
     lienzo.width = W; lienzo.height = H;
     const ctx = lienzo.getContext('2d');
     const img = ctx.createImageData(W, H);
     for (let cy = 0; cy < H; cy++) {
       for (let cx = 0; cx < W; cx++) {
-        if (!celdas[cy * W + cx]) continue;
+        if (!suelo[cy * W + cx]) continue;
         const q = ((H - 1 - cy) * W + cx) * 4; // la imagen va de arriba abajo
         img.data[q] = 236; img.data[q + 1] = 236; img.data[q + 2] = 232; img.data[q + 3] = 255;
       }
@@ -248,9 +216,9 @@ class Visor {
     ctx.drawImage(this.capaParedes, 0, 0);
 
     // Capa 3: lo que dibujen otras herramientas (cotas, etc.), en px CSS
-    if (this.alDibujarEncima) {
+    if (this.capasEncima.length) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this.alDibujarEncima(ctx);
+      for (const capa of this.capasEncima) capa.dibujar(ctx);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
