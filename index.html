@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Escáner a plano</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="barra">
+    <h1>Escáner a plano</h1>
+    <span class="paso">Paso 1 · Cargar escaneo</span>
+  </header>
+
+  <main class="contenido">
+    <section class="tarjeta" id="zonaCarga">
+      <h2>Abrir nube de puntos</h2>
+      <p class="ayuda">Archivo <strong>.ply</strong> exportado de RayStudio (nube de puntos, no malla).</p>
+
+      <label class="boton" for="archivo">Elegir archivo .ply</label>
+      <input type="file" id="archivo" accept=".ply" hidden>
+
+      <div class="soltar" id="soltar">o arrástralo aquí</div>
+    </section>
+
+    <section class="tarjeta oculto" id="zonaProgreso">
+      <h2 id="nombreArchivo">Leyendo…</h2>
+      <div class="barraProgreso"><div id="progreso"></div></div>
+      <p class="ayuda" id="textoProgreso">0 %</p>
+    </section>
+
+    <section class="tarjeta oculto" id="zonaResultado">
+      <h2>Escaneo cargado</h2>
+      <dl class="datos" id="datos"></dl>
+      <button class="boton secundario" id="otroArchivo">Abrir otro archivo</button>
+    </section>
+
+    <section class="tarjeta error oculto" id="zonaError">
+      <h2>No se ha podido leer el archivo</h2>
+      <p id="textoError"></p>
+      <button class="boton secundario" id="reintentar">Probar con otro archivo</button>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
