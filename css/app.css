@@ -340,3 +340,114 @@ body {
   .panelHerramientas .grupo { flex-wrap: wrap; }
   .herramienta { padding: 8px 9px; }
 }
+
+/* =================== Edición del plano =================== */
+
+.panelHerramientas { max-height: calc(100% - 90px); overflow-y: auto; overflow-x: hidden; padding-bottom: 4px; }
+.panelHerramientas .grupo { flex-wrap: wrap; align-items: center; }
+.herramienta:disabled { opacity: .35; cursor: default; }
+.herramienta:disabled:hover { background: none; }
+#barraHerramientas .herramienta[aria-pressed="true"] { background: var(--texto); color: #fff; }
+
+.opcion { display: flex; align-items: center; gap: 6px; font-size: .88rem; padding: 0 6px; }
+.opcion select, .partida select {
+  font: inherit; font-size: .88rem; padding: 5px 6px; border: 1px solid var(--borde); border-radius: 6px; background: #fff;
+}
+
+/* Paleta de símbolos */
+.paleta { flex-direction: column; align-items: stretch !important; max-width: 340px; gap: 6px !important; padding: 8px !important; }
+.grupoPaleta { display: flex; flex-wrap: wrap; gap: 4px; }
+.tituloPaleta { width: 100%; font-size: .75rem; font-weight: 600; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+.simbolo {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; width: 76px; padding: 4px 2px;
+  background: #fff; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font: inherit; font-size: .7rem; color: var(--texto);
+}
+.simbolo:hover { background: #f1efe9; }
+.simbolo[aria-pressed="true"] { border-color: var(--acento); background: #fff4ee; }
+.simbolo span { line-height: 1.1; text-align: center; }
+
+/* Propiedades */
+.propiedades { flex-direction: column; align-items: stretch !important; gap: 6px !important; padding: 10px 12px !important; width: 250px; font-size: .88rem; }
+.propiedades strong { font-size: .95rem; }
+.prop { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.prop input { width: 4.8em; text-align: right; font: inherit; padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; }
+.prop input:focus { outline: 2px solid var(--acento); outline-offset: -1px; }
+.fila { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.mini { font: inherit; font-size: .85rem; padding: 6px 10px; border: 1px solid var(--borde); background: #fff; border-radius: 6px; cursor: pointer; }
+.mini:hover { background: #f1efe9; }
+.mini.peligro { color: var(--error); border-color: #f1c0c0; align-self: flex-start; }
+.propiedades .nota { margin: 0; }
+
+/* Botones segmentados */
+.segmentado { display: inline-flex; border: 1px solid var(--borde); border-radius: 7px; overflow: hidden; background: #fff; }
+.segmentado button { font: inherit; font-size: .82rem; padding: 6px 10px; border: 0; background: none; cursor: pointer; color: var(--texto); }
+.segmentado button + button { border-left: 1px solid var(--borde); }
+.segmentado button[aria-pressed="true"] { background: var(--texto); color: #fff; }
+.estados { width: 100%; }
+.estados button { flex: 1; padding: 6px 4px; }
+.estados .est-derribo[aria-pressed="true"] { background: #f59f00; color: #000; }
+.estados .est-nuevo[aria-pressed="true"] { background: #e03131; }
+
+/* Pie izquierdo: escala + vista */
+.pieIzquierda { position: absolute; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.pieIzquierda .escalaGrafica { position: static; }
+.grupoVista { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 6px 8px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.casilla.pequena { font-size: .82rem; gap: 5px; }
+
+/* Presupuesto */
+.campo { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--suave); margin-bottom: 10px; }
+.campo input { font: inherit; color: var(--texto); padding: 7px 8px; border: 1px solid var(--borde); border-radius: 6px; }
+.partida { border: 1px solid var(--borde); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; font-size: .86rem; }
+.partida.inactiva { opacity: .5; }
+.filaPartida { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.filaPartida + .filaPartida { margin-top: 6px; }
+.nombrePartida { flex: 1; min-width: 0; font: inherit; font-weight: 600; border: 1px solid transparent; border-radius: 4px; padding: 3px 4px; }
+.nombrePartida:hover { border-color: var(--borde); }
+.nombrePartida:focus { border-color: var(--acento); outline: none; }
+.partida .cant { min-width: 4em; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.partida input.cant, .partida input.precio { width: 5.5em; font: inherit; text-align: right; padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; }
+.importe { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.importe.sinPrecio { color: #e8590c; font-weight: 500; font-size: .8rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chip { font: inherit; font-size: .75rem; padding: 3px 8px; border-radius: 12px; border: 1px solid var(--borde); background: #fff; color: var(--suave); cursor: pointer; }
+.chip[aria-pressed="true"] { background: #e7f0fa; border-color: #74a9d8; color: #1864ab; }
+.totales { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 14px 0 8px; font-variant-numeric: tabular-nums; }
+.totales dd { margin: 0; text-align: right; font-weight: 600; }
+.totales .total { font-size: 1.1rem; font-weight: 800; border-top: 2px solid var(--borde); padding-top: 6px; }
+.totales input { width: 3em; font: inherit; text-align: right; padding: 2px 4px; border: 1px solid var(--borde); border-radius: 4px; }
+
+/* Informe: oculto en pantalla, solo al imprimir */
+#informe { display: none; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; }
+  body > *:not(#informe) { display: none !important; }
+  #informe { display: block; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #000; font-size: 10.5pt; }
+  .infCabecera { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+  .infCabecera h1 { font-size: 18pt; margin: 0; }
+  .infObra { margin: 2px 0 0; font-size: 12pt; }
+  .infFecha { text-align: right; font-size: 10pt; }
+  .infFecha span { color: #555; }
+  #informe h2 { font-size: 12pt; margin: 12px 0 6px; }
+  .infPlano { break-inside: avoid; }
+  .infPlano img { width: 100%; max-height: 230mm; object-fit: contain; border: 1px solid #ccc; }
+  .infTabla { break-inside: avoid; }
+  #informe table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  #informe th, #informe td { border-bottom: 1px solid #ccc; padding: 4px 6px; text-align: right; }
+  #informe th:first-child, #informe td:first-child { text-align: left; }
+  #informe tfoot td { font-weight: 700; border-bottom: 0; }
+  .infTotal td { font-size: 12pt; border-top: 2px solid #000; }
+  .infNota, .infPie { font-size: 8.5pt; color: #555; }
+  .infPie { margin-top: 14px; border-top: 1px solid #ccc; padding-top: 6px; }
+}
+
+@media (max-width: 600px) {
+  .herramienta span { display: none; }
+  .herramienta { padding: 8px 10px; font-size: 1rem; }
+  .propiedades { width: auto; }
+  .paleta { max-width: none; }
+  .simbolo { width: 64px; }
+  .pieIzquierda { left: 10px; bottom: 70px; }
+  .grupoVista { padding: 4px 6px; gap: 6px; }
+  .segmentado button { padding: 6px 8px; }
+}
