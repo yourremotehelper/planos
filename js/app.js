@@ -20,7 +20,7 @@ const medicion = new Medicion(visor, iman);
 const plano = new Plano(visor);
 const editor = new Editor({ visor, plano, iman, estancias, medicion, superficie });
 const presupuesto = new Presupuesto({ plano, estancias });
-visor.capasEncima = [superficie, estancias, plano, { dibujar: (ctx) => estancias.dibujarEtiquetas(ctx) }, medicion, editor]; // orden de dibujo
+visor.capasEncima = [superficie, estancias, plano, medicion, { dibujar: (ctx) => estancias.dibujarEtiquetas(ctx) }, editor]; // orden de dibujo
 
 // Historial de deshacer: una "foto" de todo lo editable
 plano.capturar = () => ({
@@ -37,7 +37,7 @@ medicion.alAntesDeCambiar = () => plano.guardar();
 estancias.obtenerHuecos = () => plano.huecos;
 
 const marcarCambio = () => { estado.sinGuardar = true; };
-plano.alCambiar = () => { estancias.recalcularTodas(); marcarCambio(); actualizarSuperficies(); actualizarPresupuesto(); actualizarPropiedades(); };
+plano.alCambiar = () => { estancias.recalcularTodas(); marcarCambio(); actualizarSuperficies(); actualizarPresupuesto(); actualizarPropiedades(); actualizarCapas(); };
 estancias.alCambiar = () => { marcarCambio(); presupuesto.limpiarEstancias(); actualizarHerramientas(); actualizarSuperficies(); actualizarPresupuesto(); };
 medicion.alCambiar = () => { marcarCambio(); actualizarHerramientas(); };
 superficie.alCambiar = () => { marcarCambio(); actualizarSuperficies(); };
@@ -139,7 +139,7 @@ function abrirEnVisor(m) {
 function mostrarError(texto) { $('textoError').textContent = texto; mostrarCarga('zonaError'); }
 
 function actualizarTodo() {
-  actualizarHerramientas(); actualizarPropiedades(); actualizarSuperficies(); actualizarPresupuesto(); actualizarVista();
+  actualizarHerramientas(); actualizarPropiedades(); actualizarSuperficies(); actualizarPresupuesto(); actualizarVista(); actualizarCapas();
 }
 
 // ---------- Altura del corte ----------
@@ -184,7 +184,7 @@ $('selectorVista').addEventListener('click', (e) => {
   actualizarVista(); actualizarHerramientas();
   visor.redibujar();
 });
-$('verEscaneo').addEventListener('change', (e) => { visor.verEscaneo = e.target.checked; visor.redibujar(); });
+$('verEscaneo').addEventListener('change', (e) => capas.poner('escaneo', 'visible', e.target.checked));
 
 // ---------- Herramientas ----------
 
@@ -220,6 +220,7 @@ function actualizarHerramientas() {
   if (h && h !== 'medir' && h !== 'estancia' && h !== 'simbolo' && plano.vista !== 'actual' && !editor.muroA && !editor.huecoInicio) texto += ' · se dibuja como NUEVO';
   if (h === 'simbolo' && plano.vista !== 'actual') texto += ' · se coloca como NUEVO';
   if (editor.sel && !h) texto = '';
+  if (h && editor.capaActivada) texto = `Capa «${CAPAS.find((c) => c.id === editor.capaActivada).nombre}» mostrada para dibujar · ${texto}`;
   pista.textContent = texto || '';
   pista.classList.toggle('oculto', !texto);
 }
@@ -278,6 +279,8 @@ function deshacer() {
     const b = e.target.closest('[data-simbolo]');
     if (!b) return;
     editor.simbolo = b.dataset.simbolo;
+    const capaSim = capaDeSimbolo(editor.simbolo);
+    editor.capaActivada = capas.activar(capaSim) ? capaSim : null;
     if (window.innerWidth <= 600) estado.paletaPlegada = true;
     actualizarHerramientas();
   });
@@ -372,8 +375,8 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- Paneles laterales ----------
 
-const PANELES = ['panelInfo', 'panelSuperficies', 'panelPresupuesto'];
-const BOTON_PANEL = { panelInfo: 'btnInfo', panelSuperficies: 'btnSuperficies', panelPresupuesto: 'btnPresupuesto' };
+const PANELES = ['panelInfo', 'panelSuperficies', 'panelPresupuesto', 'panelCapas'];
+const BOTON_PANEL = { panelInfo: 'btnInfo', panelSuperficies: 'btnSuperficies', panelPresupuesto: 'btnPresupuesto', panelCapas: 'btnCapas' };
 function abrirPanel(id) {
   for (const p of PANELES) { $(p).classList.toggle('oculto', p !== id); $(BOTON_PANEL[p]).classList.toggle('activo', p === id); }
 }
@@ -381,11 +384,63 @@ function alternarPanel(id) { abrirPanel($(id).classList.contains('oculto') ? id 
 $('btnInfo').addEventListener('click', () => alternarPanel('panelInfo'));
 $('btnSuperficies').addEventListener('click', () => alternarPanel('panelSuperficies'));
 $('btnPresupuesto').addEventListener('click', () => alternarPanel('panelPresupuesto'));
+$('btnCapas').addEventListener('click', () => alternarPanel('panelCapas'));
 document.querySelectorAll('[data-cierra]').forEach((b) => b.addEventListener('click', () => abrirPanel(null)));
+
+// ---------- Capas ----------
+
+function cuantosEnCapa(id) {
+  const n = {
+    estancias: estancias.lista.length, nombres: estancias.lista.length, cotasEstancias: estancias.lista.length,
+    cotas: medicion.cotas.length, muros: plano.muros.length, huecos: plano.huecos.length,
+  }[id];
+  if (n !== undefined) return n;
+  if (['sanitarios', 'cocina', 'mobiliario'].includes(id)) return plano.simbolos.filter((s) => capaDeSimbolo(s.clave) === id).length;
+  return null;
+}
+
+function actualizarCapas() {
+  $('listaCapas').innerHTML = CAPAS.map((c) => {
+    const st = capas.estado[c.id];
+    const n = cuantosEnCapa(c.id);
+    return `<li data-capa="${c.id}" class="${st.visible ? '' : 'oculta'}">
+      <span class="iconoCapa">${c.icono}</span>
+      <span class="nombreCapa">${c.nombre}</span>
+      ${n !== null ? `<span class="cuenta">${n}</span>` : ''}
+      <button class="interruptorCapa" data-campo="visible" aria-pressed="${st.visible}" title="${st.visible ? 'Ocultar' : 'Mostrar'}">👁</button>
+      <button class="interruptorCapa" data-campo="bloqueada" aria-pressed="${st.bloqueada}" title="${st.bloqueada ? 'Desbloquear' : 'Bloquear'}" ${CAPAS_SIN_BLOQUEO.has(c.id) ? 'disabled' : ''}>🔒</button>
+    </li>`;
+  }).join('');
+  $('verEscaneo').checked = capas.visible('escaneo');
+  $('verZonas').checked = capas.visible('zonas');
+}
+
+$('listaCapas').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-campo]');
+  if (!b) return;
+  const id = b.closest('[data-capa]').dataset.capa;
+  capas.poner(id, b.dataset.campo, !capas.estado[id][b.dataset.campo]);
+});
+$('btnMostrarTodo').addEventListener('click', () => capas.mostrarTodo());
+
+capas.alCambiar = () => {
+  // si lo elegido queda oculto o bloqueado, se suelta
+  if (editor.sel) {
+    const el = editor.elementoSel();
+    const ok = !el ? false
+      : editor.sel.tipo === 'estancia' ? capas.editable('estancias')
+      : editor.sel.tipo === 'cota' ? capas.editable('cotas')
+      : plano.editable(el);
+    if (!ok) editor.seleccionar(null);
+  }
+  marcarCambio();
+  actualizarCapas();
+  visor.redibujar();
+};
 
 // ---------- Superficies y estancias ----------
 
-$('verZonas').addEventListener('change', (e) => { superficie.visible = e.target.checked; visor.redibujar(); });
+$('verZonas').addEventListener('change', (e) => capas.poner('zonas', 'visible', e.target.checked));
 
 function actualizarSuperficies() {
   $('totalAuto').textContent = superficie.datos ? `${fmt(superficie.total(), 1)} m²` : '—';
@@ -512,9 +567,34 @@ $('btnPartidasEjemplo').addEventListener('click', () => {
 
 // ---------- Imprimir / PDF ----------
 
+const CLAVE_EXPORTAR = 'escaner-planos:exportar';
 $('btnImprimir').addEventListener('click', () => {
   editor.elegir(null);
-  generarInforme({ visor, plano, estancias, medicion, presupuesto, escaneo: estado.escaneo });
+  const d = $('dialogoExportar');
+  const conReforma = hayReforma(plano);
+  let pref = null;
+  try { pref = JSON.parse(localStorage.getItem(CLAVE_EXPORTAR)); } catch { /* sin preferencias guardadas */ }
+  $('etqActual').textContent = conReforma ? 'Estado actual' : 'Plano';
+  d.querySelectorAll('[name="plano"]').forEach((c) => {
+    const disponible = c.value === 'actual' || conReforma;
+    c.disabled = !disponible;
+    c.closest('label').classList.toggle('apagada', !disponible);
+    c.checked = disponible && (pref && pref.planos ? pref.planos.includes(c.value) || (c.value === 'actual' && !pref.planos.length) : true);
+  });
+  d.querySelectorAll('[name="seccion"]').forEach((c) => {
+    c.checked = pref && pref.secciones ? pref.secciones.includes(c.value) : true;
+  });
+  d.showModal();
+});
+$('dialogoExportar').addEventListener('close', () => {
+  const d = $('dialogoExportar');
+  if (d.returnValue !== 'exportar') return;
+  const opciones = {
+    planos: [...d.querySelectorAll('[name="plano"]:checked')].map((c) => c.value),
+    secciones: [...d.querySelectorAll('[name="seccion"]:checked')].map((c) => c.value),
+  };
+  try { localStorage.setItem(CLAVE_EXPORTAR, JSON.stringify(opciones)); } catch { /* no pasa nada */ }
+  generarInforme({ visor, plano, estancias, medicion, presupuesto, escaneo: estado.escaneo }, opciones);
 });
 
 // ---------- Guardar y cargar el trabajo ----------
@@ -529,6 +609,7 @@ $('btnGuardar').addEventListener('click', () => {
     cotas: medicion.cotas,
     plano: plano.serializar(),
     presupuesto: presupuesto.serializar(),
+    capas: capas.serializar(),
     zonas: superficie.datos ? superficie.datos.zonas.filter((z) => z.incluida === z.sinEscanear)
       .map((z) => ({ x: z.etiqueta.x, y: z.etiqueta.y, incluida: z.incluida })) : [],
   };
@@ -560,6 +641,7 @@ $('archivoTrabajo').addEventListener('change', async (e) => {
   estancias.recalcularTodas();
   medicion.cotas = (t.cotas || []).map((c) => ({ ...c }));
   if (t.presupuesto) presupuesto.cargarDatos(t.presupuesto);
+  if (t.capas) capas.cargarDatos(t.capas);
   if (superficie.datos) {
     for (const z of superficie.datos.zonas) z.incluida = !z.sinEscanear;
     for (const g of t.zonas || []) { const z = superficie.zonaEn(visor.aPantalla(g.x, g.y)); if (z) z.incluida = g.incluida; }

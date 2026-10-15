@@ -20,6 +20,9 @@ class Editor {
   avisar() { this.plano.seleccion = this.sel; if (this.alCambiar) this.alCambiar(); this.visor.redibujar(); }
 
   elegir(h) {
+    // para dibujar en una capa, tiene que estar visible y sin bloquear
+    const capa = { medir: 'cotas', estancia: 'estancias', muro: 'muros', puerta: 'huecos', ventana: 'huecos', simbolo: capaDeSimbolo(this.simbolo) }[h];
+    if (capa) this.capaActivada = capas.activar(capa) ? capa : null;
     this.herramienta = h;
     this.muroA = null; this.huecoInicio = null; this.cursor = null; this.fantasma = null;
     this.medicion.activar(h === 'medir');
@@ -113,7 +116,7 @@ class Editor {
     if (h === 'puerta' || h === 'ventana') return this.clicHueco(p, e);
     if (h === 'simbolo') return this.clicSimbolo(p, e);
     // seleccionar: la selección se hace al pulsar; un clic en vacío con zonas visibles las alterna
-    if (!this.sel && this.superficie.visible) {
+    if (!this.sel && capas.visible('zonas')) {
       const z = this.superficie.zonaEn(p);
       if (z) this.superficie.alternar(z);
     }
@@ -286,7 +289,7 @@ class Editor {
     if (el && (this.sel.tipo === 'muro' || this.sel.tipo === 'hueco')) {
       for (const k of ['a', 'b']) if (cerca(el[k])) return this.empezar({ modo: 'extremo', el, k });
     }
-    if (el && this.sel.tipo === 'estancia') {
+    if (el && this.sel.tipo === 'estancia' && capas.editable('estancias')) {
       const i = el.puntos.findIndex(cerca);
       if (i >= 0) return this.empezar({ modo: 'vertice', el, i });
     }
@@ -300,7 +303,7 @@ class Editor {
     }
 
     // 3) cotas
-    const ic = this.medicion.cotas.findIndex((c) => distSegmento(m, c.a, c.b).d <= tol);
+    const ic = capas.editable('cotas') ? this.medicion.cotas.findIndex((c) => distSegmento(m, c.a, c.b).d <= tol) : -1;
     if (ic >= 0) { this.seleccionar({ tipo: 'cota', id: ic }); return true; }
 
     // 4) estancias

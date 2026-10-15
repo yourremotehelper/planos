@@ -57,7 +57,7 @@ class Medicion {
 
   dibujar(ctx) {
     const v = this.visor;
-    for (const c of this.cotas) dibujarCota(ctx, v.aPantalla(c.a.x, c.a.y), v.aPantalla(c.b.x, c.b.y), c.d, false);
+    if (capas.visible('cotas')) for (const c of this.cotas) dibujarCota(ctx, v.aPantalla(c.a.x, c.a.y), v.aPantalla(c.b.x, c.b.y), c.d, false, { registro: v.etiquetas });
     if (!this.activo || v.imprimiendo) return;
     if (this.primero) {
       const a = v.aPantalla(this.primero.x, this.primero.y);
@@ -111,6 +111,10 @@ function dibujarCota(ctx, a, b, d, provisional, opciones = {}) {
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
+    if (opciones.registro) {
+      const ox = -Math.sin(ang) * desp, oy = Math.cos(ang) * desp;
+      opciones.registro.ocupar(Colocador.caja((a.x + b.x) / 2 + ox, (a.y + b.y) / 2 + oy, w, 18, ang));
+    }
     ctx.beginPath();
     ctx.roundRect(-w / 2, desp - 9, w, 18, 4);
     ctx.fill(); ctx.stroke();

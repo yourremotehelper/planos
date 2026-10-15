@@ -1,6 +1,40 @@
 // Visor de la planta: dibuja el corte de la nube visto desde arriba,
 // con zoom (rueda o pellizco) y desplazamiento (arrastrar).
 
+// Registro de lo que ya ocupa sitio en pantalla (etiquetas y obstáculos como muebles o puertas),
+// para que las etiquetas nuevas busquen un hueco libre en vez de taparse.
+class Colocador {
+  constructor() { this.etiquetas = []; this.obstaculos = []; }
+  static caja(cx, cy, w, h, ang = 0, margen = 2) {
+    const c = Math.abs(Math.cos(ang)), s = Math.abs(Math.sin(ang));
+    const W = w * c + h * s, H = w * s + h * c;
+    return { x0: cx - W / 2 - margen, y0: cy - H / 2 - margen, x1: cx + W / 2 + margen, y1: cy + H / 2 + margen };
+  }
+  static desdePuntos(pts, margen = 0) {
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    return { x0: Math.min(...xs) - margen, y0: Math.min(...ys) - margen, x1: Math.max(...xs) + margen, y1: Math.max(...ys) + margen };
+  }
+  static choca(a, b) { return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0; }
+  dentro(caja) { const l = this.limites; return !l || (caja.x0 >= l.x0 && caja.y0 >= l.y0 && caja.x1 <= l.x1 && caja.y1 <= l.y1); }
+  libre(caja, tambienObstaculos = true) {
+    if (!this.dentro(caja)) return false;
+    if (this.etiquetas.some((c) => Colocador.choca(c, caja))) return false;
+    if (tambienObstaculos && this.obstaculos.some((c) => Colocador.choca(c, caja))) return false;
+    return true;
+  }
+  // Cuánto taparía una caja (para elegir el mal menor cuando no hay sitio libre)
+  coste(caja) {
+    const solape = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    let c = 0;
+    for (const e of this.etiquetas) c += 100 * solape(e, caja);
+    for (const o of this.obstaculos) c += 10 * solape(o, caja);
+    if (!this.dentro(caja)) c += 1e7;
+    return c;
+  }
+  ocupar(caja) { this.etiquetas.push(caja); }
+  obstaculo(caja) { this.obstaculos.push(caja); }
+}
+
 class Visor {
   constructor(lienzo) {
     this.lienzo = lienzo;
@@ -176,7 +210,7 @@ class Visor {
   // W, H en píxeles reales; dpr = píxeles reales por píxel CSS.
   renderizar(ctx, W, H, dpr, opciones = {}) {
     const s = this.vista.escala * dpr, ox = this.vista.ox * dpr, oy = this.vista.oy * dpr;
-    const escaneo = opciones.escaneo ?? this.verEscaneo;
+    const escaneo = opciones.escaneo ?? capas.visible('escaneo');
     const tenue = opciones.tenue ?? false;
 
     // Capa 1: fondo blanco + superficie escaneada en gris muy claro
@@ -186,6 +220,8 @@ class Visor {
     if (escaneo) this.pintarEscaneo(ctx, W, H, s, ox, oy, tenue);
 
     // Capa 3: lo que dibujen otras herramientas (plano, estancias, cotas…), en px CSS
+    this.etiquetas = new Colocador();
+    this.etiquetas.limites = { x0: 0, y0: 0, x1: W / dpr, y1: H / dpr };
     if (this.capasEncima.length) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       for (const capa of this.capasEncima) capa.dibujar(ctx);

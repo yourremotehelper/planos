@@ -92,7 +92,10 @@ class Plano {
   avisar() { if (this.alCambiar) this.alCambiar(); this.visor.redibujar(); }
 
   estadoNuevo() { return this.vista === 'actual' ? 'existente' : 'nuevo'; }
-  visible(el) { return VISTAS[this.vista].ver[el.estado]; }
+  static tipoDe(el) { return el.clave ? 'simbolo' : (el.tipo === 'puerta' || el.tipo === 'ventana') ? 'hueco' : 'muro'; }
+  capaDe(el) { return capaDe(Plano.tipoDe(el), el); }
+  visible(el) { return VISTAS[this.vista].ver[el.estado] && capas.visible(this.capaDe(el)); }
+  editable(el) { return this.visible(el) && !capas.bloqueada(this.capaDe(el)); }
 
   // ---------- Deshacer / rehacer ----------
   // Se guarda una "foto" del estado ANTES de cada cambio.
@@ -185,16 +188,16 @@ class Plano {
   elementoEn(m, tolerancia) {
     for (let k = this.huecos.length - 1; k >= 0; k--) {
       const h = this.huecos[k];
-      if (!this.visible(h)) continue;
+      if (!this.editable(h)) continue;
       if (dentroDe(m, cuerpo(h)) || distSegmento(m, h.a, h.b).d <= tolerancia + h.grosor / 2) return { tipo: 'hueco', id: h.id };
     }
     for (let k = this.simbolos.length - 1; k >= 0; k--) {
       const s = this.simbolos[k];
-      if (this.visible(s) && dentroDe(m, esquinasSimbolo(s))) return { tipo: 'simbolo', id: s.id };
+      if (this.editable(s) && dentroDe(m, esquinasSimbolo(s))) return { tipo: 'simbolo', id: s.id };
     }
     for (let k = this.muros.length - 1; k >= 0; k--) {
       const w = this.muros[k];
-      if (!this.visible(w)) continue;
+      if (!this.editable(w)) continue;
       if (dentroDe(m, cuerpo(w)) || distSegmento(m, w.a, w.b).d <= tolerancia) return { tipo: 'muro', id: w.id };
     }
     return null;
@@ -287,6 +290,7 @@ class Plano {
           const A = P(sumar(h.a, por(n, o))), B = P(sumar(h.b, por(n, o)));
           ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         }
+        v.etiquetas && v.etiquetas.obstaculo(Colocador.desdePuntos(pts.map(P)));
       } else {
         // puerta: hoja abierta 90° + arco de apertura
         const caraO = h.abreLado === 1 ? o2 : o1;
@@ -302,6 +306,7 @@ class Plano {
         const a0 = Math.atan2(sH.y - sB.y, sH.x - sB.x), a1 = Math.atan2(sO.y - sB.y, sO.x - sB.x);
         let d = a1 - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
         ctx.beginPath(); ctx.arc(sB.x, sB.y, L * s, a0, a0 + d, d < 0); ctx.stroke();
+        v.etiquetas && v.etiquetas.obstaculo(Colocador.desdePuntos([sB, sO, sH, P(pts[0]), P(pts[1]), P(pts[2]), P(pts[3])]));
       }
       ctx.setLineDash([]);
     }
@@ -323,6 +328,7 @@ class Plano {
       if (vista.colores && sim.estado === 'derribo') ctx.setLineDash([5 * px, 3 * px]);
       pintarSimbolo(ctx, def, sim.ancho, sim.fondo, px, c.color);
       ctx.restore();
+      v.etiquetas && v.etiquetas.obstaculo(Colocador.desdePuntos(esquinasSimbolo(sim).map(P)));
     }
     ctx.restore();
   }

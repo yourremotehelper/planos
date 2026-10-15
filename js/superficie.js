@@ -266,7 +266,7 @@ class CapaSuperficie {
   }
 
   dibujar(ctx) {
-    if (!this.visible || !this.datos || this.visor.imprimiendo) return;
+    if (!capas.visible('zonas') || !this.datos || this.visor.imprimiendo) return;
     const v = this.visor.vista;
     const { W, H } = this.datos;
     ctx.save();

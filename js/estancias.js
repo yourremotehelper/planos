@@ -159,6 +159,7 @@ class Estancias {
   borrarTodo() { this.lista = []; this.puntos = []; this.seleccion = null; this.siguienteId = 1; this.visor.redibujar(); this.avisar(); }
 
   estanciaEn(p) {
+    if (!capas.editable('estancias')) return null;
     const m = this.visor.aMetros(p.x, p.y);
     for (let k = this.lista.length - 1; k >= 0; k--) {
       if (dentroPoligono(m.x, m.y, this.lista[k].puntos)) return this.lista[k];
@@ -178,7 +179,7 @@ class Estancias {
   // Capa de fondo (relleno y contorno): va debajo de muros y muebles
   dibujar(ctx) {
     const v = this.visor;
-    for (const e of this.lista) this.dibujarFondo(ctx, e, !v.imprimiendo && e.id === this.seleccion);
+    if (capas.visible('estancias')) for (const e of this.lista) this.dibujarFondo(ctx, e, !v.imprimiendo && e.id === this.seleccion);
 
     if (!this.activo || v.imprimiendo) return;
     const pts = this.puntos.map((q) => v.aPantalla(q.x, q.y));
@@ -245,48 +246,228 @@ class Estancias {
     ctx.restore();
   }
 
-  // Capa de etiquetas (cotas de los lados, nombre y m²): va encima de todo
+  // Capa de etiquetas (nombre, m² y cotas de los lados): va encima de todo.
+  // Cada etiqueta busca un sitio libre: no tapa otras etiquetas ni muebles ni puertas.
+  // Orden de prioridad: nombres (estancias grandes primero) y después cotas (lados largos primero).
   dibujarEtiquetas(ctx) {
     const v = this.visor;
-    for (const e of this.lista) this.dibujarEstancia(ctx, e, !v.imprimiendo && e.id === this.seleccion);
+    const reg = v.etiquetas || new Colocador();
+    const orden = [...this.lista].sort((a, b) => b.area - a.area);
+    this.llamadasNombre = [];   // estancias rotuladas con letra (solo al imprimir)
+    if (capas.visible('nombres')) for (const e of orden) this.dibujarNombre(ctx, e, reg, !v.imprimiendo && e.id === this.seleccion);
+    if (!capas.visible('cotasEstancias')) return;
+    const lados = [];
+    for (const e of orden) {
+      const p = e.puntos;
+      const sentido = areaConSigno(p) >= 0 ? 1 : -1; // 1: antihorario → el interior queda a la izquierda
+      for (let i = 0; i < p.length; i++) {
+        const A = p[i], B = p[(i + 1) % p.length];
+        lados.push({ A, B, L: Math.hypot(B.x - A.x, B.y - A.y), sentido, estancia: e.nombre });
+      }
+    }
+    lados.sort((x, y) => y.L - x.L);
+    this.llamadas = [];   // cotas numeradas (solo al imprimir) para la leyenda del informe
+    // Una pared compartida por dos estancias tiene la misma medida: se acota una sola vez
+    const hechos = [];
+    const mismoLado = (l, k) => Math.abs(l.L - k.L) < 0.03 &&
+      Math.hypot((l.A.x + l.B.x) / 2 - (k.A.x + k.B.x) / 2, (l.A.y + l.B.y) / 2 - (k.A.y + k.B.y) / 2) < 0.3;
+    for (const l of lados) {
+      if (hechos.some((k) => mismoLado(l, k))) continue;
+      hechos.push(l);
+      this.dibujarCotaLado(ctx, l, reg);
+    }
   }
 
-  dibujarEstancia(ctx, e, seleccionada) {
+  dibujarNombre(ctx, e, reg, seleccionada) {
     const v = this.visor;
-    const pts = e.puntos.map((q) => v.aPantalla(q.x, q.y));
-
-    // cota de cada lado
-    for (let i = 0; i < pts.length; i++) {
-      const j = (i + 1) % pts.length;
-      const a = e.puntos[i], b = e.puntos[j];
-      dibujarCota(ctx, pts[i], pts[j], Math.hypot(b.x - a.x, b.y - a.y), false,
-        { color: COLOR_ESTANCIA, sinLinea: true, sinRemates: true, desplazamiento: 0, minimoTexto: 60, tamTexto: 11 });
+    // Dos formatos: normal (2 líneas) y compacto (1 línea, más pequeño) para estancias estrechas
+    const formatos = [
+      { lineas: [e.nombre, `${fmtM(e.area)} m²`], fuentes: ['700 13px', '600 12px'], alto: 38, salto: 17 },
+      { lineas: [`${e.nombre} · ${fmtM(e.area, 1)} m²`], fuentes: ['700 11px'], alto: 18, salto: 0 },
+      { lineas: [e.nombre, `${fmtM(e.area, 1)} m²`], fuentes: ['700 10px', '600 10px'], alto: 28, salto: 12 },
+    ];
+    const familia = ' system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.save();
+    for (const f of formatos) {
+      f.ancho = Math.max(...f.lineas.map((t, i) => { ctx.font = f.fuentes[i] + familia; return ctx.measureText(t).width; })) + 12;
     }
 
-    // nombre y m² en el centro
+    // candidatos: el centro y después puntos interiores cada vez más lejos de él
     const c = centroPoligono(e.puntos);
-    const pc = v.aPantalla(c.x, c.y);
-    const linea1 = e.nombre, linea2 = `${fmtM(e.area)} m²`;
-    ctx.save();
-    ctx.font = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    const w1 = ctx.measureText(linea1).width;
-    ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    const w = Math.max(w1, ctx.measureText(linea2).width) + 14;
+    const cand = [c];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const q of e.puntos) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
+    const paso = Math.max((x1 - x0) / 12, (y1 - y0) / 12, 10 / v.vista.escala);
+    for (let x = x0 + paso / 2; x < x1; x += paso) for (let y = y0 + paso / 2; y < y1; y += paso) if (dentroPoligono(x, y, e.puntos)) cand.push({ x, y });
+    cand.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y));
+    const candidatos = cand.slice(0, 200).map((q) => v.aPantalla(q.x, q.y));
+    const cabeDentro = (caja) => [[caja.x0, caja.y0], [caja.x1, caja.y0], [caja.x1, caja.y1], [caja.x0, caja.y1]]
+      .every(([px, py]) => { const m = v.aMetros(px, py); return dentroPoligono(m.x, m.y, e.puntos); });
+
+    let elegido = null;
+    // 1) dentro de la estancia y sin tapar nada · 2) dentro sin tapar etiquetas · 3) donde no tape etiquetas
+    // (si no cabe dentro, se prueba primero el formato más pequeño, sin tapar dibujos)
+    const pasadas = [
+      { prueba: (caja) => cabeDentro(caja) && reg.libre(caja), orden: formatos },
+      { prueba: (caja) => cabeDentro(caja) && reg.libre(caja, false), orden: formatos },
+      { prueba: (caja) => reg.libre(caja), orden: [formatos[1], formatos[2]] },
+      { prueba: (caja) => reg.libre(caja, false), orden: [formatos[1], formatos[2]] },
+    ];
+    // Al imprimir, si no cabe dentro de su estancia: letra en círculo y el nombre en la leyenda
+    const pasadasUsadas = v.imprimiendo ? pasadas.slice(0, 2) : pasadas;
+    buscar: for (const { prueba, orden } of pasadasUsadas) {
+      for (const f of orden) {
+        for (const s of candidatos) {
+          const caja = Colocador.caja(s.x, s.y, f.ancho, f.alto, 0, 3);
+          if (prueba(caja)) { elegido = { s, caja, f }; break buscar; }
+        }
+      }
+    }
+    if (!elegido && v.imprimiendo) {
+      const letra = String.fromCharCode(65 + this.llamadasNombre.length);
+      const r = 9;
+      let mejor = null;
+      for (const s of candidatos.slice(0, 80)) {
+        const caja = Colocador.caja(s.x, s.y, 2 * r, 2 * r, 0, 1);
+        const coste = reg.coste(caja);
+        if (!mejor || coste < mejor.coste) mejor = { s, caja, coste };
+        if (coste === 0) break;
+      }
+      reg.ocupar(mejor.caja);
+      this.llamadasNombre.push({ letra, nombre: e.nombre, area: e.area });
+      ctx.fillStyle = COLOR_ESTANCIA;
+      ctx.beginPath(); ctx.arc(mejor.s.x, mejor.s.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = '700 11px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(letra, mejor.s.x, mejor.s.y + 0.5);
+      ctx.restore();
+      return;
+    }
+    if (!elegido) {
+      // sin sitio libre: la posición (con el formato pequeño) que menos tape
+      let mejor = Infinity;
+      for (const f of [formatos[1], formatos[2]]) for (const s of candidatos) {
+        const caja = Colocador.caja(s.x, s.y, f.ancho, f.alto, 0, 3);
+        const coste = reg.coste(caja);
+        if (coste < mejor) { mejor = coste; elegido = { s, caja, f }; }
+      }
+    }
+    reg.ocupar(elegido.caja);
+    const { s: pc, f } = elegido;
     ctx.fillStyle = 'rgba(255,255,255,.94)';
     ctx.strokeStyle = seleccionada ? '#d9480f' : COLOR_ESTANCIA;
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(pc.x - w / 2, pc.y - 19, w, 38, 6); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(pc.x - f.ancho / 2, pc.y - f.alto / 2, f.ancho, f.alto, 6); ctx.fill(); ctx.stroke();
     ctx.fillStyle = COLOR_ESTANCIA;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText(linea1, pc.x, pc.y - 8);
-    ctx.font = '600 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText(linea2, pc.x, pc.y + 9);
+    const y0t = pc.y - (f.salto * (f.lineas.length - 1)) / 2;
+    f.lineas.forEach((t, i) => { ctx.font = f.fuentes[i] + familia; ctx.fillText(t, pc.x, y0t + i * f.salto); });
+    ctx.restore();
+  }
+
+  // Cota de un lado. Nunca se omite:
+  //  1) junto al lado (por dentro de la estancia o por fuera) sin tapar nada
+  //  2) un poco más lejos, unida a su lado con una línea de referencia corta
+  //  3) en el informe: un número en círculo junto al lado (① …) y la medida en la leyenda
+  //     en pantalla: la posición más cercana que menos tape (con zoom se despeja)
+  dibujarCotaLado(ctx, l, reg) {
+    const v = this.visor;
+    const A = v.aPantalla(l.A.x, l.A.y), B = v.aPantalla(l.B.x, l.B.y);
+    const Lp = Math.hypot(B.x - A.x, B.y - A.y);
+    if (Lp < 1) return;
+    const texto = fmtCota(l.L);
+    ctx.save();
+    ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const w = ctx.measureText(texto).width, h = 13;
+
+    // normal hacia el interior, en pantalla (el eje y de pantalla va al revés)
+    const ux = (B.x - A.x) / Lp, uy = (B.y - A.y) / Lp;
+    const nx = l.sentido > 0 ? uy : -uy, ny = l.sentido > 0 ? -ux : ux;
+    let ang = Math.atan2(B.y - A.y, B.x - A.x);
+    if (ang > Math.PI / 2) ang -= Math.PI;
+    if (ang < -Math.PI / 2) ang += Math.PI;
+
+    const cabe = Lp >= w + 14;
+    const pos = (c) => {
+      const cx = A.x + (B.x - A.x) * c.t + nx * c.off, cy = A.y + (B.y - A.y) * c.t + ny * c.off;
+      const a = c.guia && !cabe ? 0 : ang;
+      return { ...c, cx, cy, a, caja: Colocador.caja(cx, cy, w + 4, h, a, 1) };
+    };
+    const cerca = [];
+    if (cabe) for (const off of [10, 22, -10, -22]) for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      const margen = (w / 2 + 4) / Lp;
+      if (t >= margen && t <= 1 - margen) cerca.push({ off, t, guia: false });
+    }
+    const conGuia = [];
+    for (const off of [34, -34, 46, -46]) for (const t of [0.5, 0.3, 0.7]) conGuia.push({ off, t, guia: true });
+
+    let elegido = null;
+    for (const c of [...cerca, ...conGuia]) { const k = pos(c); if (reg.libre(k.caja)) { elegido = k; break; } }
+
+    if (!elegido && v.imprimiendo) {
+      // 3) cota numerada
+      const n = this.llamadas.length + 1;
+      const r = 8;
+      let mejor = null;
+      for (const off of [9, -9, 0, 18, -18, 27, -27]) for (const t of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+        const cx = A.x + (B.x - A.x) * t + nx * off, cy = A.y + (B.y - A.y) * t + ny * off;
+        const caja = Colocador.caja(cx, cy, 2 * r, 2 * r, 0, 1);
+        const coste = reg.coste(caja) + Math.abs(off);
+        if (!mejor || coste < mejor.coste) mejor = { cx, cy, caja, coste };
+      }
+      reg.ocupar(mejor.caja);
+      this.llamadas.push({ n, texto, estancia: l.estancia });
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = COLOR_ESTANCIA; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(mejor.cx, mejor.cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = COLOR_ESTANCIA; ctx.font = '700 10px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(n), mejor.cx, mejor.cy + 0.5);
+      ctx.restore();
+      return;
+    }
+    if (!elegido) {
+      // en pantalla: la posición cercana que menos tape
+      let mejor = Infinity;
+      for (const c of [...cerca, { off: 10, t: 0.5, guia: false }, { off: -10, t: 0.5, guia: false }]) {
+        const k = pos(c);
+        const coste = reg.coste(k.caja) + Math.abs(c.off);
+        if (coste < mejor) { mejor = coste; elegido = k; }
+      }
+    }
+    reg.ocupar(elegido.caja);
+
+    if (elegido.guia) {
+      const px = A.x + (B.x - A.x) * elegido.t, py = A.y + (B.y - A.y) * elegido.t;
+      const sgn = Math.sign(elegido.off);
+      ctx.strokeStyle = COLOR_ESTANCIA; ctx.lineWidth = 0.8; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.moveTo(px, py);
+      ctx.lineTo(elegido.cx - nx * sgn * (h / 2 + 2), elegido.cy - ny * sgn * (h / 2 + 2)); ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fillStyle = COLOR_ESTANCIA; ctx.fill();
+      ctx.globalAlpha = 1;
+      reg.obstaculo(Colocador.desdePuntos([{ x: px, y: py }, { x: elegido.cx, y: elegido.cy }], 1));
+    }
+    ctx.translate(elegido.cx, elegido.cy);
+    ctx.rotate(elegido.a);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = 4;
+    ctx.strokeText(texto, 0, 0);
+    ctx.fillStyle = COLOR_ESTANCIA;
+    ctx.fillText(texto, 0, 0);
     ctx.restore();
   }
 }
 
 // ---------- Geometría de polígonos ----------
+
+function areaConSigno(p) {
+  let s = 0;
+  for (let i = 0; i < p.length; i++) {
+    const j = (i + 1) % p.length;
+    s += p[i].x * p[j].y - p[j].x * p[i].y;
+  }
+  return s / 2;
+}
 
 function areaPoligono(p) {
   let s = 0;
