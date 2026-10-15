@@ -1,0 +1,102 @@
+:root {
+  --fondo: #f4f3ef;
+  --tarjeta: #ffffff;
+  --texto: #1d1f21;
+  --suave: #6b6f73;
+  --borde: #dcdad3;
+  --acento: #d9480f;
+  --acento-oscuro: #b33a0b;
+  --error: #c92a2a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+}
+
+.barra {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  background: var(--texto);
+  color: #fff;
+}
+.barra h1 { margin: 0; font-size: 1.15rem; }
+.barra .paso { color: #b8bcc0; font-size: .9rem; }
+
+.contenido {
+  max-width: 640px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.tarjeta h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.tarjeta.error { border-color: var(--error); }
+.tarjeta.error h2 { color: var(--error); }
+
+.ayuda { color: var(--suave); margin: 0 0 18px; }
+
+.boton {
+  display: inline-block;
+  background: var(--acento);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.boton:hover { background: var(--acento-oscuro); }
+.boton.secundario { background: transparent; color: var(--acento); border: 1px solid var(--acento); }
+.boton.secundario:hover { background: #fff1ea; }
+
+.soltar {
+  margin-top: 16px;
+  padding: 28px;
+  border: 2px dashed var(--borde);
+  border-radius: 8px;
+  text-align: center;
+  color: var(--suave);
+}
+.soltar.activo { border-color: var(--acento); color: var(--acento); background: #fff7f2; }
+
+.barraProgreso {
+  height: 12px;
+  background: #ece9e2;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 14px 0 8px;
+}
+#progreso { height: 100%; width: 0; background: var(--acento); transition: width .15s; }
+
+.datos {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 20px;
+  margin: 12px 0 20px;
+}
+.datos dt { color: var(--suave); }
+.datos dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.oculto { display: none; }
+
+@media (max-width: 480px) {
+  .contenido { margin-top: 16px; }
+  .tarjeta { padding: 18px; }
+  .datos { grid-template-columns: 1fr; gap: 2px; }
+  .datos dd { margin-bottom: 8px; }
+}
