@@ -129,6 +129,53 @@ body {
   cursor: grab;
 }
 #lienzo.arrastrando { cursor: grabbing; }
+#lienzo.modoMedir { cursor: crosshair; }
+#lienzo.modoMedir.arrastrando { cursor: grabbing; }
+
+.panelHerramientas {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+.panelHerramientas .grupo {
+  display: flex;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+  pointer-events: auto;
+}
+.herramienta {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: .9rem;
+  cursor: pointer;
+  color: var(--texto);
+  white-space: nowrap;
+}
+.herramienta:hover { background: #f1efe9; }
+.herramienta[aria-pressed="true"] { background: var(--acento); color: #fff; }
+.herramienta[aria-pressed="true"]:hover { background: var(--acento-oscuro); }
+.herramienta.interruptor { color: var(--suave); }
+.herramienta.interruptor[aria-pressed="true"] { background: #fff1ea; color: var(--acento); }
+.pista {
+  margin: 0;
+  background: rgba(29, 31, 33, .85);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: .85rem;
+}
 
 .escalaGrafica {
   position: absolute;
@@ -165,7 +212,17 @@ body {
   font-size: .9rem;
 }
 .panelCorte input { width: 180px; accent-color: var(--acento); }
-.panelCorte output { font-weight: 600; min-width: 4.2em; font-variant-numeric: tabular-nums; }
+.campoNumero { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.campoNumero input {
+  width: 4.2em;
+  padding: 5px 6px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.campoNumero input:focus { outline: 2px solid var(--acento); outline-offset: -1px; border-color: transparent; }
 
 .panelInfo {
   position: absolute;
