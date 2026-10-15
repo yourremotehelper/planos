@@ -13,14 +13,20 @@ const TIPOS = {
   double: ['getFloat64', 8], float64: ['getFloat64', 8],
 };
 
+importScripts('geometria.js');
+
 self.onmessage = async (e) => {
   if (e.data.tipo !== 'cargar') return;
   try {
-    const resultado = await leerPLY(e.data.archivo, e.data.maxPuntos);
-    self.postMessage(
-      { tipo: 'listo', ...resultado },
-      [resultado.xyz.buffer, resultado.rgb ? resultado.rgb.buffer : new ArrayBuffer(0)]
-    );
+    const lectura = await leerPLY(e.data.archivo, e.data.maxPuntos);
+    const avisar = (texto) => self.postMessage({ tipo: 'fase', texto });
+    const t0 = performance.now();
+    const geo = nivelarYEnderezar(lectura.xyz, lectura.min, lectura.max, avisar);
+    const { xyz, ...datos } = lectura; // las coordenadas originales ya no hacen falta
+    const resultado = { ...datos, ...geo, segundosProceso: (performance.now() - t0) / 1000 };
+    const transferir = [geo.x.buffer, geo.y.buffer, geo.h.buffer];
+    if (lectura.rgb) transferir.push(lectura.rgb.buffer);
+    self.postMessage({ tipo: 'listo', ...resultado }, transferir);
   } catch (err) {
     self.postMessage({ tipo: 'error', mensaje: err.message || String(err) });
   }
@@ -163,6 +169,7 @@ async function leerBinario(archivo, cab, iVert, salto, guardar) {
     }
     self.postMessage({ tipo: 'progreso', fraccion: (p0 + n) / total });
   }
+  self.postMessage({ tipo: 'fase', texto: 'Archivo leído' });
   return k;
 }
 
