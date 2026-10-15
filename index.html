@@ -9,7 +9,7 @@
 <body>
   <header class="barra">
     <h1>Escáner a plano</h1>
-    <span class="paso">Paso 1 · Cargar escaneo</span>
+    <span class="paso">Paso 2 · Nivelar y enderezar</span>
   </header>
 
   <main class="contenido">
@@ -32,6 +32,13 @@
     <section class="tarjeta oculto" id="zonaResultado">
       <h2>Escaneo cargado</h2>
       <dl class="datos" id="datos"></dl>
+
+      <h3>Ajuste automático</h3>
+      <dl class="datos" id="ajuste"></dl>
+      <p class="aviso oculto" id="avisoSuelo"></p>
+
+      <h3>Vista previa de la planta <span class="suave">(corte a 1,1 m)</span></h3>
+      <canvas id="vistaPrevia" class="vistaPrevia"></canvas>
       <button class="boton secundario" id="otroArchivo">Abrir otro archivo</button>
     </section>
 
