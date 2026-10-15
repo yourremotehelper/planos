@@ -1,17 +1,31 @@
-// Pantalla principal — Paso 1: cargar el escaneo.
+// Pantalla principal — cargar el escaneo y mostrarlo en el visor.
 
 const MAX_PUNTOS = 3000000; // puntos que nos quedamos para trabajar con fluidez
 
 const $ = (id) => document.getElementById(id);
-const zonas = ['zonaCarga', 'zonaProgreso', 'zonaResultado', 'zonaError'];
-function mostrar(zona) {
-  zonas.forEach((z) => $(z).classList.toggle('oculto', z !== zona));
+const fmt = (n, dec = 0) => n.toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const filasHTML = (filas) => filas.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+
+const estado = { escaneo: null };
+const visor = new Visor($('lienzo'));
+
+// ---------- Cambiar de pantalla ----------
+
+function mostrarCarga(zona) {
+  $('pantallaCarga').classList.remove('oculto');
+  $('pantallaVisor').classList.add('oculto');
+  $('accionesVisor').classList.add('oculto');
+  $('nombreEscaneo').textContent = 'Paso 3 · Ver la planta';
+  ['zonaCarga', 'zonaProgreso', 'zonaError'].forEach((z) => $(z).classList.toggle('oculto', z !== zona));
 }
 
-// Aquí guardaremos el escaneo cargado para los siguientes pasos
-const estado = { escaneo: null };
+function mostrarVisor() {
+  $('pantallaCarga').classList.add('oculto');
+  $('pantallaVisor').classList.remove('oculto');
+  $('accionesVisor').classList.remove('oculto');
+}
 
-const fmt = (n, dec = 0) => n.toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+// ---------- Carga ----------
 
 function cargar(archivo) {
   if (!archivo) return;
@@ -22,7 +36,7 @@ function cargar(archivo) {
   $('nombreArchivo').textContent = `Leyendo ${archivo.name}…`;
   $('progreso').style.width = '0';
   $('textoProgreso').textContent = '0 %';
-  mostrar('zonaProgreso');
+  mostrarCarga('zonaProgreso');
 
   const inicio = performance.now();
   const worker = new Worker('js/worker.js');
@@ -38,7 +52,7 @@ function cargar(archivo) {
       worker.terminate();
       m.segundos = (performance.now() - inicio) / 1000;
       estado.escaneo = m;
-      mostrarResultado(m);
+      abrirEnVisor(m);
     } else if (m.tipo === 'error') {
       worker.terminate();
       mostrarError(m.mensaje);
@@ -51,78 +65,78 @@ function cargar(archivo) {
   worker.postMessage({ tipo: 'cargar', archivo, maxPuntos: MAX_PUNTOS });
 }
 
-const filasHTML = (filas) => filas.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+function abrirEnVisor(m) {
+  $('nombreEscaneo').textContent = m.nombre;
 
-function mostrarResultado(m) {
   $('datos').innerHTML = filasHTML([
     ['Archivo', m.nombre],
     ['Tamaño', `${fmt(m.tamanoMB, 1)} MB`],
-    ['Puntos en el archivo', fmt(m.totalPuntos)],
-    ['Puntos usados', `${fmt(m.puntosUsados)}${m.salto > 1 ? ` (1 de cada ${m.salto})` : ''}`],
-    ['Color', m.tieneColor ? 'Sí' : 'No'],
-    ['Tiempo total', `${fmt(m.segundos, 1)} s`],
+    ['Puntos', `${fmt(m.totalPuntos)}`],
+    ['Usados', `${fmt(m.puntosUsados)}${m.salto > 1 ? ` (1 de ${m.salto})` : ''}`],
+    ['Tiempo', `${fmt(m.segundos, 1)} s`],
   ]);
-
   $('ajuste').innerHTML = filasHTML([
-    ['Inclinación corregida', `${fmt(m.inclinacion, 2)}°`],
-    ['Giro de la planta', `${fmt(m.angulo, 1)}°`],
-    ['Tamaño en planta', `${fmt(m.ancho, 2)} × ${fmt(m.largo, 2)} m`],
-    ['Altura del techo', m.techo ? `≈ ${fmt(m.techo, 2)} m` : 'No detectada'],
+    ['Inclinación', `${fmt(m.inclinacion, 2)}°`],
+    ['Giro', `${fmt(m.angulo, 1)}°`],
+    ['Planta', `${fmt(m.ancho, 2)} × ${fmt(m.largo, 2)} m`],
+    ['Techo', m.techo ? `≈ ${fmt(m.techo, 2)} m` : 'No detectado'],
   ]);
-
   const aviso = $('avisoSuelo');
-  if (m.coberturaSuelo < 0.25) {
-    aviso.textContent = 'Se ha visto poco suelo en el escaneo. Revisa que la vista previa tenga sentido; si no, puede que haya que repetir el escaneo.';
-    aviso.classList.remove('oculto');
-  } else {
-    aviso.classList.add('oculto');
-  }
+  aviso.classList.toggle('oculto', m.coberturaSuelo >= 0.25);
+  aviso.textContent = 'Se ha visto poco suelo en el escaneo. Revisa que la planta tenga sentido; si no, puede que haya que repetir el escaneo.';
 
-  mostrar('zonaResultado');
-  dibujarVistaPrevia(m);
+  // El deslizador llega hasta un poco por debajo del techo
+  const deslizador = $('alturaCorte');
+  deslizador.max = String(Math.max(1.5, Math.floor(((m.techo || 3) - 0.1) * 20) / 20));
+  deslizador.value = '1.1';
+  actualizarTextoCorte();
+
+  mostrarVisor();
+  visor.cargar(m);
   console.log('Escaneo procesado', m);
-}
-
-// Dibuja los puntos entre 1,0 y 1,2 m de altura vistos desde arriba.
-// Cuantos más puntos caen en un píxel, más oscuro.
-function dibujarVistaPrevia(m) {
-  const lienzo = $('vistaPrevia');
-  const dpr = window.devicePixelRatio || 1;
-  const anchoCss = lienzo.clientWidth;
-  const margen = 10;
-  const escala = (anchoCss - 2 * margen) / m.ancho; // píxeles CSS por metro
-  const altoCss = Math.round(m.largo * escala + 2 * margen);
-  lienzo.style.height = altoCss + 'px';
-  const W = Math.round(anchoCss * dpr), H = Math.round(altoCss * dpr);
-  lienzo.width = W; lienzo.height = H;
-
-  const cuenta = new Uint16Array(W * H);
-  const e = escala * dpr, mg = margen * dpr;
-  for (let i = 0; i < m.h.length; i++) {
-    if (m.h[i] < 1.0 || m.h[i] > 1.2) continue;
-    const px = Math.floor(mg + m.x[i] * e);
-    const py = Math.floor(H - mg - m.y[i] * e); // el eje Y del canvas va hacia abajo
-    if (px < 0 || py < 0 || px >= W || py >= H) continue;
-    const k = py * W + px;
-    if (cuenta[k] < 65535) cuenta[k]++;
-  }
-
-  const ctx = lienzo.getContext('2d');
-  const img = ctx.createImageData(W, H);
-  for (let k = 0; k < cuenta.length; k++) {
-    const t = Math.min(1, cuenta[k] / 4);
-    const g = Math.round(255 * (1 - t));
-    img.data[k * 4] = g; img.data[k * 4 + 1] = g; img.data[k * 4 + 2] = g; img.data[k * 4 + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
 }
 
 function mostrarError(texto) {
   $('textoError').textContent = texto;
-  mostrar('zonaError');
+  mostrarCarga('zonaError');
 }
 
-// ---------- Eventos ----------
+// ---------- Altura del corte ----------
+
+function actualizarTextoCorte() {
+  $('valorCorte').textContent = `${fmt(parseFloat($('alturaCorte').value), 2)} m`;
+}
+$('alturaCorte').addEventListener('input', () => {
+  actualizarTextoCorte();
+  visor.cambiarCorte(parseFloat($('alturaCorte').value));
+});
+
+// ---------- Escala gráfica ----------
+// Elige una longitud "redonda" (0,1 · 0,2 · 0,5 · 1 · 2 · 5 · 10 m…) que ocupe unos 80–160 px
+visor.alCambiarVista = (vista) => {
+  const objetivo = 100 / vista.escala; // metros que ocupan ~100 px
+  const pot = Math.pow(10, Math.floor(Math.log10(objetivo)));
+  const largo = [1, 2, 5, 10].map((k) => k * pot).find((l) => l >= objetivo) || 10 * pot;
+  $('regla').style.width = `${largo * vista.escala}px`;
+  $('textoEscala').textContent = largo >= 1 ? `${fmt(largo)} m` : `${fmt(largo * 100)} cm`;
+};
+
+// ---------- Botones ----------
+
+$('btnEncajar').addEventListener('click', () => visor.encajar());
+$('btnInfo').addEventListener('click', () => {
+  const panel = $('panelInfo');
+  panel.classList.toggle('oculto');
+  $('btnInfo').classList.toggle('activo', !panel.classList.contains('oculto'));
+});
+$('cerrarInfo').addEventListener('click', () => {
+  $('panelInfo').classList.add('oculto');
+  $('btnInfo').classList.remove('activo');
+});
+$('btnOtro').addEventListener('click', () => { $('archivo').value = ''; mostrarCarga('zonaCarga'); });
+$('reintentar').addEventListener('click', () => { $('archivo').value = ''; mostrarCarga('zonaCarga'); });
+
+// ---------- Elegir o arrastrar archivo ----------
 
 $('archivo').addEventListener('change', (e) => cargar(e.target.files[0]));
 
@@ -135,8 +149,6 @@ const soltar = $('soltar');
   e.preventDefault();
   if (ev === 'drop' || e.target === document.documentElement) soltar.classList.remove('activo');
 }));
-document.addEventListener('drop', (e) => cargar(e.dataTransfer.files[0]));
-
-const volver = () => { $('archivo').value = ''; mostrar('zonaCarga'); };
-$('otroArchivo').addEventListener('click', volver);
-$('reintentar').addEventListener('click', volver);
+document.addEventListener('drop', (e) => {
+  if (e.dataTransfer.files[0]) cargar(e.dataTransfer.files[0]);
+});
