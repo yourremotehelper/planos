@@ -9,9 +9,10 @@
 <body>
   <header class="barra">
     <h1>Escáner a plano</h1>
-    <span class="paso" id="nombreEscaneo">Paso 3 · Ver la planta</span>
+    <span class="paso" id="nombreEscaneo">Abrir un escaneo</span>
     <div class="acciones oculto" id="accionesVisor">
       <button class="botonBarra" id="btnEncajar" title="Ver la planta entera">Encajar</button>
+      <button class="botonBarra" id="btnSuperficies" title="Superficies y estancias">m²</button>
       <button class="botonBarra" id="btnInfo" title="Datos del escaneo">Datos</button>
       <button class="botonBarra" id="btnOtro" title="Abrir otro escaneo">Abrir otro</button>
     </div>
@@ -48,14 +49,20 @@
 
     <div class="panelHerramientas">
       <div class="grupo">
-        <button class="herramienta" id="btnMedir" aria-pressed="false">📏 Medir</button>
-        <button class="herramienta interruptor activo" id="btnIman" aria-pressed="true" title="Engancha los puntos a paredes y esquinas">🧲 Imán</button>
+        <button class="herramienta" id="btnMedir" aria-pressed="false" title="Medir distancias">📏 Medir</button>
+        <button class="herramienta" id="btnEstancia" aria-pressed="false" title="Dibujar una estancia pinchando en sus esquinas">⬠ Estancia</button>
+        <button class="herramienta interruptor" id="btnIman" aria-pressed="true" title="Engancha los puntos a paredes y esquinas">🧲 Imán</button>
       </div>
       <div class="grupo oculto" id="grupoCotas">
         <button class="herramienta" id="btnDeshacer" title="Quitar la última cota (Ctrl+Z)">↶ Deshacer</button>
         <button class="herramienta" id="btnBorrarCotas">Borrar cotas</button>
       </div>
-      <p class="pista oculto" id="pistaMedir">Pincha en el primer punto…</p>
+      <div class="grupo oculto" id="grupoEstancia">
+        <button class="herramienta destacado" id="btnCerrarEstancia" title="Cerrar la estancia (Intro)">✓ Cerrar</button>
+        <button class="herramienta" id="btnDeshacerPunto" title="Quitar el último punto (Ctrl+Z)">↶ Punto</button>
+        <button class="herramienta" id="btnCancelarEstancia" title="Cancelar (Esc)">Cancelar</button>
+      </div>
+      <p class="pista oculto" id="pista"></p>
     </div>
 
     <div class="escalaGrafica" id="escalaGrafica">
@@ -72,18 +79,51 @@
       </span>
     </div>
 
-    <aside class="panelInfo oculto" id="panelInfo">
-      <button class="cerrar" id="cerrarInfo" aria-label="Cerrar">×</button>
+    <!-- Panel: datos del escaneo -->
+    <aside class="panelLateral oculto" id="panelInfo">
+      <button class="cerrar" data-cierra="panelInfo" aria-label="Cerrar">×</button>
       <h3>Escaneo</h3>
       <dl class="datos" id="datos"></dl>
       <h3>Ajuste automático</h3>
       <dl class="datos" id="ajuste"></dl>
       <p class="aviso oculto" id="avisoSuelo"></p>
     </aside>
+
+    <!-- Panel: superficies y estancias -->
+    <aside class="panelLateral ancho oculto" id="panelSuperficies">
+      <button class="cerrar" data-cierra="panelSuperficies" aria-label="Cerrar">×</button>
+
+      <h3>Estancias dibujadas</h3>
+      <p class="vacio" id="sinEstancias">Aún no hay estancias. Pulsa <strong>⬠ Estancia</strong> y pincha en las esquinas.</p>
+      <div class="tablaEstancias oculto" id="tablaEstancias">
+        <table>
+          <thead>
+            <tr><th>Nombre</th><th>Suelo</th><th>Perím.</th><th>Altura</th><th>Paredes</th><th></th></tr>
+          </thead>
+          <tbody id="filasEstancias"></tbody>
+          <tfoot id="totalesEstancias"></tfoot>
+        </table>
+      </div>
+
+      <h3>Superficie automática</h3>
+      <p class="cifra"><span id="totalAuto">—</span> <span class="suave">aprox.</span></p>
+      <label class="casilla"><input type="checkbox" id="verZonas"> Ver zonas en la planta</label>
+      <p class="nota">Estimación rápida de toda la zona escaneada. Pulsa una zona en la planta para excluirla (p. ej. la calle vista por la puerta) o incluirla. Para presupuestar, usa las estancias dibujadas: son exactas.</p>
+
+      <h3>Trabajo</h3>
+      <div class="filaBotones">
+        <button class="boton secundario pequeno" id="btnGuardar">Guardar trabajo</button>
+        <label class="boton secundario pequeno" for="archivoTrabajo">Cargar trabajo</label>
+        <input type="file" id="archivoTrabajo" accept=".json" hidden>
+      </div>
+    </aside>
   </section>
 
+  <script src="js/superficie.js"></script>
   <script src="js/visor.js"></script>
+  <script src="js/iman.js"></script>
   <script src="js/medir.js"></script>
+  <script src="js/estancias.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
