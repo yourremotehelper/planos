@@ -416,6 +416,25 @@ body {
 .totales .total { font-size: 1.1rem; font-weight: 800; border-top: 2px solid var(--borde); padding-top: 6px; }
 .totales input { width: 3em; font: inherit; text-align: right; padding: 2px 4px; border: 1px solid var(--borde); border-radius: 4px; }
 
+/* Capas */
+.listaCapas { list-style: none; margin: 8px 0 12px; padding: 0; }
+.listaCapas li { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #f0eee8; font-size: .9rem; }
+.listaCapas li.oculta .nombreCapa { color: #adb5bd; text-decoration: line-through; }
+.listaCapas .iconoCapa { width: 1.5em; text-align: center; }
+.listaCapas .nombreCapa { flex: 1; }
+.listaCapas .cuenta { color: var(--suave); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.interruptorCapa { width: 32px; height: 28px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; cursor: pointer; font-size: .9rem; opacity: .35; }
+.interruptorCapa[aria-pressed="true"] { opacity: 1; background: #fff4ee; border-color: #f2b38f; }
+.interruptorCapa:disabled { visibility: hidden; }
+
+/* Diálogo de exportar */
+.dialogo { border: 0; border-radius: 12px; padding: 20px 22px; width: min(380px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.dialogo::backdrop { background: rgba(0,0,0,.35); }
+.dialogo h3 { margin: 0 0 4px; }
+.dialogo fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 10px 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.dialogo legend { font-size: .82rem; color: var(--suave); padding: 0 4px; }
+.filaBotones.derecha { justify-content: flex-end; margin-top: 12px; }
+
 /* Informe: oculto en pantalla, solo al imprimir */
 #informe { display: none; }
 @media print {
@@ -438,6 +457,10 @@ body {
   #informe tfoot td { font-weight: 700; border-bottom: 0; }
   .infTotal td { font-size: 12pt; border-top: 2px solid #000; }
   .infNota, .infPie { font-size: 8.5pt; color: #555; }
+  .infLlamadas { font-size: 9pt; margin: 4px 0 0; }
+  .infLlamadas span { white-space: nowrap; }
+  #informe .infLados td:last-child { text-align: left; }
+  #informe .infLados td:first-child { width: 28%; white-space: nowrap; }
   .infPie { margin-top: 14px; border-top: 1px solid #ccc; padding-top: 6px; }
 }
 
@@ -451,3 +474,4 @@ body {
   .grupoVista { padding: 4px 6px; gap: 6px; }
   .segmentado button { padding: 6px 8px; }
 }
+.casilla.apagada { opacity: .4; }
