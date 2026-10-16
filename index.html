@@ -168,13 +168,41 @@
       <button class="cerrar" data-cierra="panelPresupuesto" aria-label="Cerrar">×</button>
       <h3>Presupuesto</h3>
       <label class="campo">Obra / cliente <input type="text" id="obra" placeholder="p. ej. Reforma baño · C/ Aragón 12"></label>
-      <div id="listaPartidas"></div>
-      <div class="filaBotones">
-        <button class="boton secundario pequeno" id="btnAñadirPartida">+ Añadir partida</button>
-        <button class="boton secundario pequeno" id="btnPartidasEjemplo" title="Volver a las partidas de ejemplo">Partidas de ejemplo</button>
+
+      <div class="pestanas" role="tablist">
+        <button role="tab" data-pestana="porEstancia" aria-selected="true">Por estancia</button>
+        <button role="tab" data-pestana="generales" aria-selected="false">Partidas generales</button>
       </div>
+
+      <div id="pestanaPorEstancia">
+        <p class="nota">Elige un paquete para cada estancia. Se calcula con sus medidas y puedes comparar entre paquetes de la misma categoría (p. ej. baño estándar o premium).</p>
+        <div id="listaEstanciasPresupuesto"></div>
+        <button class="boton secundario pequeno" id="btnEditarPaquetes">✎ Editar paquetes y precios</button>
+      </div>
+
+      <div id="pestanaGenerales" class="oculto">
+        <p class="nota">Partidas de toda la obra: derribos, tabiques nuevos, puertas, ventanas, gestión de residuos…</p>
+        <div id="listaPartidas"></div>
+        <div class="filaBotones">
+          <button class="boton secundario pequeno" id="btnAñadirPartida">+ Añadir partida</button>
+          <button class="boton secundario pequeno" id="btnPartidasEjemplo" title="Volver a las partidas y paquetes de ejemplo">Restaurar ejemplos</button>
+        </div>
+      </div>
+
       <dl class="totales" id="totalesPresupuesto"></dl>
-      <p class="nota">Las partidas y precios se guardan en este dispositivo y dentro de cada trabajo. Las de ejemplo no llevan precio: pon los tuyos.</p>
+      <p class="nota">Partidas, paquetes y precios se guardan en este dispositivo y dentro de cada trabajo. Los ejemplos no llevan precio: pon los tuyos.</p>
+    </aside>
+
+    <!-- Panel: editar paquetes -->
+    <aside class="panelLateral ancho oculto" id="panelPaquetes">
+      <button class="cerrar" data-cierra="panelPaquetes" aria-label="Cerrar">×</button>
+      <h3>Paquetes de acabados</h3>
+      <p class="nota">Cada línea se mide con la estancia a la que se aplica el paquete. "Unidades fijas" es una cantidad por estancia (1 inodoro, 2 griferías…).</p>
+      <div id="listaPaquetes"></div>
+      <div class="filaBotones">
+        <button class="boton secundario pequeno" id="btnNuevoPaquete">+ Nuevo paquete</button>
+        <button class="boton secundario pequeno" id="btnVolverPresupuesto">← Volver al presupuesto</button>
+      </div>
     </aside>
   </section>
 
@@ -194,6 +222,7 @@
         <label class="casilla"><input type="checkbox" name="seccion" value="estancias"> Estancias (superficies)</label>
         <label class="casilla"><input type="checkbox" name="seccion" value="lados"> Medidas de los lados</label>
         <label class="casilla"><input type="checkbox" name="seccion" value="presupuesto"> Presupuesto</label>
+        <label class="casilla"><input type="checkbox" name="seccion" value="comparativa"> Comparativa de paquetes (p. ej. estándar / premium)</label>
       </fieldset>
       <div class="filaBotones derecha">
         <button class="boton secundario pequeno" value="cancelar">Cancelar</button>
