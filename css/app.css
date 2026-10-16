@@ -416,6 +416,47 @@ body {
 .totales .total { font-size: 1.1rem; font-weight: 800; border-top: 2px solid var(--borde); padding-top: 6px; }
 .totales input { width: 3em; font: inherit; text-align: right; padding: 2px 4px; border: 1px solid var(--borde); border-radius: 4px; }
 
+/* Pestañas del presupuesto */
+.pestanas { display: flex; gap: 4px; border-bottom: 1px solid var(--borde); margin: 4px 0 10px; }
+.pestanas button { font: inherit; font-size: .88rem; padding: 8px 12px; border: 0; background: none; cursor: pointer; color: var(--suave); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.pestanas button[aria-selected="true"] { color: var(--texto); border-bottom-color: var(--acento); font-weight: 600; }
+
+/* Estancias en el presupuesto */
+.estPres { border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: .86rem; }
+.estPres .cabecera { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.estPres .cabecera strong { font-size: .95rem; }
+.estPres .medidas { color: var(--suave); font-size: .8rem; margin: 2px 0 8px; font-variant-numeric: tabular-nums; }
+.estPres .totalEst { font-weight: 800; font-variant-numeric: tabular-nums; }
+.opcionesPaquete { display: flex; flex-direction: column; gap: 4px; }
+.opcionPaquete { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #eceae4; border-radius: 6px; cursor: pointer; }
+.opcionPaquete:hover { background: #faf9f6; }
+.opcionPaquete.elegido { border-color: var(--acento); background: #fff6f0; }
+.opcionPaquete input { accent-color: var(--acento); margin: 0; }
+.opcionPaquete .precio { font-weight: 700; font-variant-numeric: tabular-nums; }
+.opcionPaquete .porM2 { color: var(--suave); font-size: .78rem; font-variant-numeric: tabular-nums; min-width: 6.5em; text-align: right; }
+.opcionPaquete .falta { color: #e8590c; font-size: .75rem; grid-column: 2 / 5; }
+.desglose { margin-top: 8px; }
+.desglose summary { cursor: pointer; color: var(--suave); font-size: .82rem; }
+.desglose table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.desglose td { padding: 3px 4px; border-bottom: 1px solid #f0eee8; text-align: right; }
+.desglose td:first-child { text-align: left; }
+
+/* Editor de paquetes */
+.paqueteEd { border: 1px solid var(--borde); border-radius: 8px; margin-bottom: 10px; }
+.paqueteEd > summary { padding: 9px 12px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.paqueteEd > summary .cat { color: var(--suave); font-weight: 400; font-size: .82rem; }
+.paqueteEd .cuerpo { padding: 0 12px 10px; }
+.paqueteEd .filaCab { display: flex; gap: 8px; margin-bottom: 8px; }
+.paqueteEd .filaCab input, .paqueteEd .filaCab select { font: inherit; font-size: .88rem; padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; }
+.paqueteEd .filaCab input { flex: 1; min-width: 0; font-weight: 600; }
+.lineaPaq { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid #f0eee8; font-size: .82rem; }
+.lineaPaq input, .lineaPaq select { font: inherit; font-size: .82rem; padding: 4px 6px; border: 1px solid var(--borde); border-radius: 5px; min-width: 0; }
+.lineaPaq .concepto { grid-column: 1 / 5; }
+.lineaPaq select { width: 100%; }
+.lineaPaq .cantidad { width: 3.2em; text-align: right; }
+.lineaPaq .precioLin { width: 5.5em; text-align: right; }
+.lineaPaq .sufijo { color: var(--suave); white-space: nowrap; }
+
 /* Capas */
 .listaCapas { list-style: none; margin: 8px 0 12px; padding: 0; }
 .listaCapas li { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #f0eee8; font-size: .9rem; }
@@ -458,6 +499,10 @@ body {
   .infTotal td { font-size: 12pt; border-top: 2px solid #000; }
   .infNota, .infPie { font-size: 8.5pt; color: #555; }
   .infLlamadas { font-size: 9pt; margin: 4px 0 0; }
+  .infEstPaq { margin: 10px 0 2px; font-size: 10.5pt; }
+  .infEstPaq span { color: #555; font-weight: 400; font-size: 9.5pt; }
+  #informe .infComparativa td, #informe .infComparativa th { text-align: right; }
+  #informe .infComparativa .elegido { font-weight: 700; }
   .infLlamadas span { white-space: nowrap; }
   #informe .infLados td:last-child { text-align: left; }
   #informe .infLados td:first-child { width: 28%; white-space: nowrap; }
