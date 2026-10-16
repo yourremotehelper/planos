@@ -74,9 +74,9 @@ class Estancias {
     this.avisar();
   }
 
-  crear(puntos, nombre, altura) {
+  crear(puntos, nombre, altura, paquete = null) {
     const id = this.siguienteId++;
-    const e = { id, nombre: nombre || `Estancia ${id}`, puntos };
+    const e = { id, nombre: nombre || `Estancia ${id}`, puntos, paquete };
     e.alturaAuto = this.alturaTecho(puntos);
     e.altura = altura || e.alturaAuto || this.visor.datos.techo || 2.5;
     this.recalcular(e);
@@ -106,7 +106,7 @@ class Estancias {
   serializar() {
     return {
       siguienteId: this.siguienteId,
-      lista: this.lista.map((e) => ({ id: e.id, nombre: e.nombre, puntos: e.puntos.map((q) => ({ x: q.x, y: q.y })), altura: e.altura, alturaAuto: e.alturaAuto })),
+      lista: this.lista.map((e) => ({ id: e.id, nombre: e.nombre, puntos: e.puntos.map((q) => ({ x: q.x, y: q.y })), altura: e.altura, alturaAuto: e.alturaAuto, paquete: e.paquete ?? null })),
     };
   }
   restaurar(d) {

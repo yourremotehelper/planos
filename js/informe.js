@@ -93,13 +93,18 @@ function generarInforme(ctxApp, opciones) {
   }), { area: 0, per: 0, net: 0, rod: 0 });
 
   const lineas = presupuesto.lineas().filter((l) => l.importe > 0); // las partidas sin precio o sin medición no salen
+  // estancias con paquete (y su coste)
+  const conPaquete = lista.map((x) => ({ est: x, paq: presupuesto.paquete(x.paquete) })).filter((z) => z.paq)
+    .map((z) => ({ ...z, coste: presupuesto.costePaquete(z.paq, z.est) }));
+  const hayPresupuesto = lineas.length > 0 || conPaquete.some((z) => z.coste.total > 0);
+  const dec = (u) => (u.corto === 'ud' || u.corto === 'PA' ? 0 : 2);
   const t = presupuesto.totales();
   const fecha = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const html = `
     <header class="infCabecera">
       <div>
-        <h1>${opciones.planos.length || quiero('estancias') || quiero('lados') ? 'Medición' : ''}${lineas.length && quiero('presupuesto') ? (opciones.planos.length || quiero('estancias') ? ' y presupuesto' : 'Presupuesto') : ''}</h1>
+        <h1>${opciones.planos.length || quiero('estancias') || quiero('lados') ? 'Medición' : ''}${hayPresupuesto && quiero('presupuesto') ? (opciones.planos.length || quiero('estancias') ? ' y presupuesto' : 'Presupuesto') : ''}</h1>
         ${presupuesto.obra ? `<p class="infObra">${e(presupuesto.obra)}</p>` : ''}
       </div>
       <div class="infFecha">${fecha}<br><span>Escaneo: ${e(escaneo.nombre)}</span></div>
@@ -140,19 +145,49 @@ function generarInforme(ctxApp, opciones) {
       <p class="infNota">Lados en el orden en que se dibujó cada estancia.</p>
     </section>` : ''}
 
-    ${lineas.length && quiero('presupuesto') ? `
+    ${hayPresupuesto && quiero('presupuesto') ? `
     <section class="infTabla">
       <h2>Presupuesto</h2>
-      <table>
-        <thead><tr><th>Concepto</th><th>Medición</th><th>Precio</th><th>Importe</th></tr></thead>
-        <tbody>${lineas.map((l) => `<tr><td>${e(l.p.nombre)}</td><td>${fmtM(l.cant, UNIDADES[l.p.unidad].corto === 'ud' ? 0 : 2)} ${UNIDADES[l.p.unidad].corto}</td>
-          <td>${fmtEur(l.p.precio || 0)}</td><td>${fmtEur(l.importe)}</td></tr>`).join('')}</tbody>
+      ${conPaquete.filter((z) => z.coste.total > 0).map((z) => `
+        <p class="infEstPaq"><strong>${e(z.est.nombre)} — ${e(z.paq.nombre)}</strong>
+          <span>· ${fmtM(z.est.area, 2)} m² suelo · ${fmtM(z.est.m2ParedesNetas ?? z.est.m2Paredes, 2)} m² paredes</span></p>
+        <table>
+          <thead><tr><th>Concepto</th><th>Medición</th><th>Precio</th><th>Importe</th></tr></thead>
+          <tbody>${z.coste.lineas.filter((x) => x.importe > 0).map((x) => `<tr><td>${e(x.l.concepto)}</td>
+            <td>${fmtM(x.cant, dec(x.u))} ${x.u.corto}</td><td>${fmtEur(x.l.precio)}</td><td>${fmtEur(x.importe)}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><td colspan="3">Subtotal ${e(z.est.nombre)}</td><td>${fmtEur(z.coste.total)}</td></tr></tfoot>
+        </table>`).join('')}
+      ${lineas.length ? `
+        <p class="infEstPaq"><strong>Partidas generales</strong></p>
+        <table>
+          <thead><tr><th>Concepto</th><th>Medición</th><th>Precio</th><th>Importe</th></tr></thead>
+          <tbody>${lineas.map((l) => `<tr><td>${e(l.p.nombre)}</td><td>${fmtM(l.cant, UNIDADES[l.p.unidad].corto === 'ud' ? 0 : 2)} ${UNIDADES[l.p.unidad].corto}</td>
+            <td>${fmtEur(l.p.precio || 0)}</td><td>${fmtEur(l.importe)}</td></tr>`).join('')}</tbody>
+          <tfoot><tr><td colspan="3">Subtotal partidas generales</td><td>${fmtEur(t.generales)}</td></tr></tfoot>
+        </table>` : ''}
+      <table style="margin-top:10px">
         <tfoot>
           <tr><td colspan="3">Base imponible</td><td>${fmtEur(t.base)}</td></tr>
           <tr><td colspan="3">IVA (${fmtM(presupuesto.iva, 0)} %)</td><td>${fmtEur(t.iva)}</td></tr>
           <tr class="infTotal"><td colspan="3">Total</td><td>${fmtEur(t.total)}</td></tr>
         </tfoot>
       </table>
+    </section>` : ''}
+
+    ${quiero('comparativa') && conPaquete.length ? `
+    <section class="infTabla">
+      <h2>Comparativa de paquetes</h2>
+      ${conPaquete.map((z) => {
+        const opciones = presupuesto.paquetesParaComparar(z.est);
+        if (opciones.length < 2) return '';
+        return `<p class="infEstPaq"><strong>${e(z.est.nombre)}</strong> <span>· ${fmtM(z.est.area, 2)} m² suelo · ${fmtM(z.est.m2ParedesNetas ?? z.est.m2Paredes, 2)} m² paredes</span></p>
+        <table class="infComparativa">
+          <thead><tr><th style="text-align:left">Paquete</th><th>Precio por m² de suelo</th><th>Importe (sin IVA)</th></tr></thead>
+          <tbody>${opciones.map((q) => { const c = presupuesto.costePaquete(q, z.est); return `<tr class="${q.id === z.paq.id ? 'elegido' : ''}">
+            <td style="text-align:left">${e(q.nombre)}${q.id === z.paq.id ? ' (elegido)' : ''}</td>
+            <td>${z.est.area > 0 && c.total ? fmtEur(c.total / z.est.area) : '—'}</td><td>${fmtEur(c.total)}</td></tr>`; }).join('')}</tbody>
+        </table>`;
+      }).join('')}
     </section>` : ''}
 
     <p class="infPie">Medidas obtenidas de escaneo láser. Precisión orientativa ±2–3 cm; para elementos a medida, confirmar en obra.</p>

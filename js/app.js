@@ -375,10 +375,10 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- Paneles laterales ----------
 
-const PANELES = ['panelInfo', 'panelSuperficies', 'panelPresupuesto', 'panelCapas'];
+const PANELES = ['panelInfo', 'panelSuperficies', 'panelPresupuesto', 'panelCapas', 'panelPaquetes'];
 const BOTON_PANEL = { panelInfo: 'btnInfo', panelSuperficies: 'btnSuperficies', panelPresupuesto: 'btnPresupuesto', panelCapas: 'btnCapas' };
 function abrirPanel(id) {
-  for (const p of PANELES) { $(p).classList.toggle('oculto', p !== id); $(BOTON_PANEL[p]).classList.toggle('activo', p === id); }
+  for (const p of PANELES) { $(p).classList.toggle('oculto', p !== id); if (BOTON_PANEL[p]) $(BOTON_PANEL[p]).classList.toggle('activo', p === id || (p === 'panelPresupuesto' && id === 'panelPaquetes')); }
 }
 function alternarPanel(id) { abrirPanel($(id).classList.contains('oculto') ? id : null); }
 $('btnInfo').addEventListener('click', () => alternarPanel('panelInfo'));
@@ -518,7 +518,11 @@ function actualizarPresupuesto() {
     </div>`;
   }).join('');
   const t = presupuesto.totales();
+  actualizarEstanciasPresupuesto();
+  actualizarPaquetes();
   $('totalesPresupuesto').innerHTML = `
+    <dt>Paquetes por estancia</dt><dd>${fmtEur(t.paquetes)}</dd>
+    <dt>Partidas generales</dt><dd>${fmtEur(t.generales)}</dd>
     <dt>Base imponible</dt><dd>${fmtEur(t.base)}</dd>
     <dt>IVA <input id="iva" value="${fmt(presupuesto.iva, 0)}" inputmode="decimal"> %</dt><dd>${fmtEur(t.iva)}</dd>
     <dt class="total">Total</dt><dd class="total">${fmtEur(t.total)}</dd>`;
@@ -561,8 +565,159 @@ $('totalesPresupuesto').addEventListener('change', (e) => {
   presupuesto.cambio();
 });
 $('btnAñadirPartida').addEventListener('click', () => presupuesto.añadir());
+
+// ---------- Presupuesto por estancia (paquetes) ----------
+
+document.querySelectorAll('[data-pestana]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-pestana]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  $('pestanaPorEstancia').classList.toggle('oculto', b.dataset.pestana !== 'porEstancia');
+  $('pestanaGenerales').classList.toggle('oculto', b.dataset.pestana !== 'generales');
+}));
+
+const porM2 = (total, area) => (area > 0 ? `${fmt(total / area, 0)} €/m²` : '');
+
+function actualizarEstanciasPresupuesto() {
+  const cont = $('listaEstanciasPresupuesto');
+  if (!estancias.lista.length) { cont.innerHTML = '<p class="vacio">Dibuja estancias (⬠) para presupuestarlas por paquetes.</p>'; return; }
+  const abiertos = new Set([...cont.querySelectorAll('details[open]')].map((d) => d.dataset.id));
+  cont.innerHTML = estancias.lista.map((e) => {
+    const actual = presupuesto.paquete(e.paquete);
+    const opciones = presupuesto.paquetesParaComparar(e);
+    const grupos = CATEGORIAS_PAQUETE.filter((c) => presupuesto.paquetes.some((q) => q.categoria === c));
+    const sel = `<select data-asignar="${e.id}" aria-label="Paquete de ${esc(e.nombre)}">
+      <option value="">— Sin paquete —</option>
+      ${grupos.map((c) => `<optgroup label="${c}">${presupuesto.paquetes.filter((q) => q.categoria === c)
+        .map((q) => `<option value="${q.id}" ${q.id === e.paquete ? 'selected' : ''}>${esc(q.nombre)}</option>`).join('')}</optgroup>`).join('')}
+    </select>`;
+    const comparativa = actual ? opciones.map((q) => {
+      const c = presupuesto.costePaquete(q, e);
+      return `<label class="opcionPaquete ${q.id === e.paquete ? 'elegido' : ''}">
+        <input type="radio" name="paq-${e.id}" data-elegir="${e.id}" value="${q.id}" ${q.id === e.paquete ? 'checked' : ''}>
+        <span>${esc(q.nombre)}</span><span class="porM2">${c.total ? porM2(c.total, e.area) : ''}</span><span class="precio">${fmtEur(c.total)}</span>
+        ${c.sinPrecio ? `<span class="falta">${c.sinPrecio} línea${c.sinPrecio > 1 ? 's' : ''} sin precio</span>` : ''}
+      </label>`;
+    }).join('') : '';
+    let desglose = '';
+    if (actual) {
+      const c = presupuesto.costePaquete(actual, e);
+      desglose = `<details class="desglose" data-id="${e.id}" ${abiertos.has(String(e.id)) ? 'open' : ''}><summary>Ver desglose de «${esc(actual.nombre)}»</summary><table>
+        ${c.lineas.map((x) => `<tr><td>${esc(x.l.concepto)}</td><td>${fmt(x.cant, x.u.corto === 'ud' || x.u.corto === 'PA' ? 0 : 2)} ${x.u.corto}</td>
+          <td>${x.l.precio ? fmtEur(x.l.precio) : '—'}</td><td>${fmtEur(x.importe)}</td></tr>`).join('')}</table></details>`;
+    }
+    const total = actual ? presupuesto.costePaquete(actual, e).total : 0;
+    return `<div class="estPres">
+      <div class="cabecera"><strong>${esc(e.nombre)}</strong>${actual ? `<span class="totalEst">${fmtEur(total)}</span>` : ''}</div>
+      <div class="medidas">${fmt(e.area, 2)} m² suelo · ${fmt(e.m2ParedesNetas ?? e.m2Paredes, 2)} m² paredes · ${fmt(e.mlRodapie ?? e.perimetro, 2)} ml rodapié${e.nPuertas ? ` · ${e.nPuertas} puerta${e.nPuertas > 1 ? 's' : ''}` : ''}</div>
+      ${sel}
+      ${comparativa ? `<div class="opcionesPaquete" style="margin-top:8px">${comparativa}</div>` : ''}
+      ${desglose}
+    </div>`;
+  }).join('');
+}
+
+function asignarPaquete(idEstancia, idPaquete) {
+  const e = estancias.lista.find((x) => x.id === idEstancia);
+  if (!e) return;
+  plano.guardar();
+  e.paquete = idPaquete || null;
+  marcarCambio();
+  actualizarPresupuesto();
+  visor.redibujar();
+}
+$('listaEstanciasPresupuesto').addEventListener('change', (e) => {
+  if (e.target.dataset.asignar) asignarPaquete(Number(e.target.dataset.asignar), Number(e.target.value) || null);
+  if (e.target.dataset.elegir) asignarPaquete(Number(e.target.dataset.elegir), Number(e.target.value));
+});
+$('btnEditarPaquetes').addEventListener('click', () => { abrirPanel('panelPaquetes'); $('listaPaquetes').innerHTML = ''; actualizarPaquetes(); });
+$('btnVolverPresupuesto').addEventListener('click', () => abrirPanel('panelPresupuesto'));
+
+// ---------- Editor de paquetes ----------
+
+function actualizarPaquetes() {
+  const cont = $('listaPaquetes');
+  if ($('panelPaquetes').classList.contains('oculto') && cont.childElementCount) return; // no repintar si no se ve
+  const abiertos = new Set([...cont.querySelectorAll('details[open]')].map((d) => d.dataset.id));
+  if (document.activeElement && cont.contains(document.activeElement)) return; // no interrumpir mientras se escribe
+  const unidades = (sel) => Object.entries(UNIDADES_PAQUETE).map(([k, u]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${u.nombre}</option>`).join('');
+  cont.innerHTML = presupuesto.paquetes.map((q) => {
+    const usado = estancias.lista.filter((e) => e.paquete === q.id).length;
+    return `<details class="paqueteEd" data-id="${q.id}" ${abiertos.has(String(q.id)) ? 'open' : ''}>
+      <summary><span>${esc(q.nombre)}</span><span class="cat">${q.categoria} · ${q.lineas.length} líneas${usado ? ` · en ${usado} estancia${usado > 1 ? 's' : ''}` : ''}</span></summary>
+      <div class="cuerpo">
+        <div class="filaCab">
+          <input data-paq="nombre" value="${esc(q.nombre)}" aria-label="Nombre del paquete">
+          <select data-paq="categoria">${CATEGORIAS_PAQUETE.map((c) => `<option ${c === q.categoria ? 'selected' : ''}>${c}</option>`).join('')}</select>
+        </div>
+        ${q.lineas.map((l) => {
+          const u = UNIDADES_PAQUETE[l.unidad] || UNIDADES_PAQUETE.ud;
+          return `<div class="lineaPaq" data-linea="${l.id}">
+            <input class="concepto" data-lin="concepto" value="${esc(l.concepto)}" aria-label="Concepto">
+            <select data-lin="unidad">${unidades(l.unidad)}</select>
+            ${u.fija ? `<input class="cantidad" data-lin="cantidad" value="${fmt(l.cantidad || 0)}" inputmode="decimal" title="Cantidad por estancia">` : '<span></span>'}
+            <span><input class="precioLin" data-lin="precio" value="${fmt(l.precio || 0, 2)}" inputmode="decimal"> <span class="sufijo">€/${u.corto}</span></span>
+            <button class="borrarFila" data-accion="borrarLinea" title="Quitar línea">×</button>
+          </div>`;
+        }).join('')}
+        <div class="filaBotones" style="margin-top:8px">
+          <button class="boton secundario pequeno" data-accion="añadirLinea">+ Línea</button>
+          <button class="boton secundario pequeno" data-accion="duplicar">Duplicar</button>
+          <button class="boton secundario pequeno" data-accion="borrarPaquete">Borrar paquete</button>
+        </div>
+      </div>
+    </details>`;
+  }).join('');
+}
+
+function paqueteDe(el) { return presupuesto.paquete(Number(el.closest('[data-id]').dataset.id)); }
+$('listaPaquetes').addEventListener('change', (e) => {
+  const q = paqueteDe(e.target);
+  if (!q) return;
+  if (e.target.dataset.paq) q[e.target.dataset.paq] = e.target.dataset.paq === 'nombre' ? (e.target.value.trim() || q.nombre) : e.target.value;
+  const filaL = e.target.closest('[data-linea]');
+  if (filaL) {
+    const l = q.lineas.find((x) => x.id === Number(filaL.dataset.linea));
+    const campo = e.target.dataset.lin;
+    if (campo === 'concepto') l.concepto = e.target.value.trim() || l.concepto;
+    else if (campo === 'unidad') l.unidad = e.target.value;
+    else { const v = num(e.target.value); l[campo] = Number.isNaN(v) ? 0 : v; }
+  }
+  e.target.blur();
+  presupuesto.cambio();
+  // repintar (cambia el sufijo €/ud, cantidades…)
+  const abierto = q.id;
+  $('listaPaquetes').innerHTML = '';
+  actualizarPaquetes();
+  const d = $('listaPaquetes').querySelector(`[data-id="${abierto}"]`);
+  if (d) d.open = true;
+});
+$('listaPaquetes').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+$('listaPaquetes').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-accion]');
+  if (!b) return;
+  const q = paqueteDe(b);
+  if (!q) return;
+  const a = b.dataset.accion;
+  if (a === 'añadirLinea') q.lineas.push(presupuesto.nuevaLinea());
+  if (a === 'borrarLinea') q.lineas = q.lineas.filter((l) => l.id !== Number(b.closest('[data-linea]').dataset.linea));
+  if (a === 'duplicar') { const c = presupuesto.duplicarPaquete(q.id); $('listaPaquetes').innerHTML = ''; actualizarPaquetes(); const d = $('listaPaquetes').querySelector(`[data-id="${c.id}"]`); if (d) d.open = true; return; }
+  if (a === 'borrarPaquete') { if (confirm(`¿Borrar el paquete «${q.nombre}»?`)) presupuesto.borrarPaquete(q.id); $('listaPaquetes').innerHTML = ''; actualizarPaquetes(); return; }
+  presupuesto.cambio();
+  $('listaPaquetes').innerHTML = '';
+  actualizarPaquetes();
+  const d = $('listaPaquetes').querySelector(`[data-id="${q.id}"]`);
+  if (d) d.open = true;
+});
+$('btnNuevoPaquete').addEventListener('click', () => {
+  const q = presupuesto.nuevoPaquete({ lineas: [{}] });
+  presupuesto.paquetes.push(q);
+  presupuesto.cambio();
+  $('listaPaquetes').innerHTML = '';
+  actualizarPaquetes();
+  const d = $('listaPaquetes').querySelector(`[data-id="${q.id}"]`);
+  if (d) { d.open = true; d.querySelector('[data-paq="nombre"]').select(); }
+});
 $('btnPartidasEjemplo').addEventListener('click', () => {
-  if (confirm('Se sustituirán tus partidas por las de ejemplo (sin precios). ¿Continuar?')) { presupuesto.restaurarEjemplo(); presupuesto.cambio(); }
+  if (confirm('Se sustituirán tus partidas y paquetes por los de ejemplo (sin precios). ¿Continuar?')) { presupuesto.restaurarEjemplo(); presupuesto.cambio(); }
 });
 
 // ---------- Imprimir / PDF ----------
@@ -605,7 +760,7 @@ $('btnGuardar').addEventListener('click', () => {
   const trabajo = {
     app: 'escaner-planos', version: 2, fecha: new Date().toISOString(),
     escaneo: { nombre: m.nombre, totalPuntos: m.totalPuntos, angulo: m.angulo, inclinacion: m.inclinacion },
-    estancias: estancias.lista.map((e) => ({ nombre: e.nombre, altura: e.altura, puntos: e.puntos })),
+    estancias: estancias.lista.map((e) => ({ nombre: e.nombre, altura: e.altura, puntos: e.puntos, paquete: e.paquete ?? null })),
     cotas: medicion.cotas,
     plano: plano.serializar(),
     presupuesto: presupuesto.serializar(),
@@ -637,7 +792,8 @@ $('archivoTrabajo').addEventListener('change', async (e) => {
   plano.limpiar();
   if (t.plano) plano.cargarDatos(t.plano);
   estancias.borrarTodo();
-  for (const x of t.estancias || []) estancias.crear(x.puntos, x.nombre, x.altura);
+  if (t.presupuesto) presupuesto.cargarDatos(t.presupuesto);
+  for (const x of t.estancias || []) estancias.crear(x.puntos, x.nombre, x.altura, x.paquete ?? null);
   estancias.recalcularTodas();
   medicion.cotas = (t.cotas || []).map((c) => ({ ...c }));
   if (t.presupuesto) presupuesto.cargarDatos(t.presupuesto);

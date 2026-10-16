@@ -33,6 +33,46 @@ const PARTIDAS_EJEMPLO = [
   { nombre: 'Gestión de residuos', unidad: 'pa' },
 ];
 
+// ---------- Paquetes de acabados por estancia ----------
+// Un paquete ("Baño estándar", "Baño premium"…) es una lista de líneas; cada línea se mide
+// con las medidas de la estancia a la que se aplica.
+
+const UNIDADES_PAQUETE = {
+  m2_suelo:    { nombre: 'm² de suelo',              corto: 'm²', medir: (e) => e.area },
+  m2_techo:    { nombre: 'm² de techo',              corto: 'm²', medir: (e) => e.area },
+  m2_pared:    { nombre: 'm² de paredes (sin huecos)', corto: 'm²', medir: (e) => e.m2ParedesNetas ?? e.m2Paredes },
+  ml_rodapie:  { nombre: 'ml de rodapié',            corto: 'ml', medir: (e) => e.mlRodapie ?? e.perimetro },
+  ml_perim:    { nombre: 'ml de perímetro',          corto: 'ml', medir: (e) => e.perimetro },
+  ud_puertas:  { nombre: 'puertas de la estancia',   corto: 'ud', medir: (e) => e.nPuertas || 0 },
+  ud_ventanas: { nombre: 'ventanas de la estancia',  corto: 'ud', medir: (e) => e.nVentanas || 0 },
+  ud:          { nombre: 'unidades fijas',           corto: 'ud', fija: true },
+  pa:          { nombre: 'precio cerrado',           corto: 'PA', medir: () => 1 },
+};
+
+const CATEGORIAS_PAQUETE = ['Baño', 'Cocina', 'Dormitorio', 'Salón', 'General'];
+
+// Ejemplos SIN precios: cada empresa pone los suyos
+const PAQUETES_EJEMPLO = [
+  { nombre: 'Baño estándar', categoria: 'Baño', lineas: [
+    ['Demolición de alicatado y solado', 'm2_pared'], ['Solado de gres', 'm2_suelo'], ['Alicatado cerámico', 'm2_pared'],
+    ['Falso techo de pladur', 'm2_techo'], ['Pintura de techo', 'm2_techo'], ['Inodoro', 'ud', 1], ['Lavabo con mueble', 'ud', 1],
+    ['Plato de ducha y mampara', 'ud', 1], ['Grifería', 'ud', 2], ['Fontanería del baño', 'pa'], ['Electricidad del baño', 'pa'] ] },
+  { nombre: 'Baño premium', categoria: 'Baño', lineas: [
+    ['Demolición de alicatado y solado', 'm2_pared'], ['Solado porcelánico gran formato', 'm2_suelo'], ['Alicatado porcelánico gran formato', 'm2_pared'],
+    ['Falso techo con foseado e iluminación', 'm2_techo'], ['Pintura de techo', 'm2_techo'], ['Inodoro suspendido con cisterna empotrada', 'ud', 1],
+    ['Mueble de lavabo suspendido', 'ud', 1], ['Plato de ducha extraplano y mampara fija', 'ud', 1], ['Grifería termostática', 'ud', 2],
+    ['Fontanería del baño', 'pa'], ['Electricidad e iluminación', 'pa'] ] },
+  { nombre: 'Cocina estándar', categoria: 'Cocina', lineas: [
+    ['Demolición', 'm2_suelo'], ['Solado', 'm2_suelo'], ['Revestimiento de paredes', 'm2_pared'], ['Pintura de techo', 'm2_techo'],
+    ['Muebles de cocina', 'ml_perim'], ['Fontanería de cocina', 'pa'], ['Electricidad de cocina', 'pa'] ] },
+  { nombre: 'Cocina premium', categoria: 'Cocina', lineas: [
+    ['Demolición', 'm2_suelo'], ['Solado porcelánico', 'm2_suelo'], ['Revestimiento porcelánico', 'm2_pared'], ['Falso techo e iluminación', 'm2_techo'],
+    ['Muebles de cocina de gama alta', 'ml_perim'], ['Encimera de cuarzo', 'ml_perim'], ['Fontanería de cocina', 'pa'], ['Electricidad de cocina', 'pa'] ] },
+  { nombre: 'Pintura y suelo', categoria: 'General', lineas: [
+    ['Solado laminado', 'm2_suelo'], ['Rodapié', 'ml_rodapie'], ['Pintura de paredes', 'm2_pared'], ['Pintura de techo', 'm2_techo'],
+    ['Puertas de paso', 'ud_puertas'] ] },
+];
+
 const CLAVE_GUARDADO = 'escaner-planos:presupuesto';
 
 class Presupuesto {
@@ -40,6 +80,7 @@ class Presupuesto {
     this.plano = plano;
     this.estancias = estancias;
     this.partidas = [];
+    this.paquetes = [];
     this.iva = 21;
     this.obra = '';
     this.siguienteId = 1;
@@ -56,9 +97,61 @@ class Presupuesto {
     };
   }
 
+  // ---------- Paquetes ----------
+
+  nuevoPaquete(p = {}) {
+    return {
+      id: this.siguienteId++, nombre: p.nombre || 'Nuevo paquete', categoria: p.categoria || 'General',
+      lineas: (p.lineas || []).map((l) => this.nuevaLinea(Array.isArray(l) ? { concepto: l[0], unidad: l[1], cantidad: l[2] } : l)),
+    };
+  }
+  nuevaLinea(l = {}) {
+    return { id: this.siguienteId++, concepto: l.concepto || 'Nueva línea', unidad: l.unidad || 'm2_suelo', precio: l.precio ?? 0, cantidad: l.cantidad ?? 1 };
+  }
+  paquetesEjemplo() { this.paquetes = PAQUETES_EJEMPLO.map((p) => this.nuevoPaquete(p)); }
+  paquete(id) { return this.paquetes.find((q) => q.id === id) || null; }
+  duplicarPaquete(id) {
+    const p = this.paquete(id);
+    if (!p) return;
+    const copia = this.nuevoPaquete({ nombre: `${p.nombre} (copia)`, categoria: p.categoria, lineas: p.lineas.map((l) => ({ ...l })) });
+    this.paquetes.splice(this.paquetes.indexOf(p) + 1, 0, copia);
+    this.cambio();
+    return copia;
+  }
+  borrarPaquete(id) {
+    this.paquetes = this.paquetes.filter((q) => q.id !== id);
+    for (const e of this.estancias.lista) if (e.paquete === id) e.paquete = null;
+    this.cambio();
+  }
+
+  // Coste de un paquete aplicado a una estancia
+  costePaquete(paq, e) {
+    const lineas = paq.lineas.map((l) => {
+      const u = UNIDADES_PAQUETE[l.unidad] || UNIDADES_PAQUETE.ud;
+      const cant = u.fija ? (l.cantidad || 0) : u.medir(e);
+      return { l, u, cant, importe: cant * (l.precio || 0) };
+    });
+    const total = lineas.reduce((t, x) => t + x.importe, 0);
+    return { lineas, total, sinPrecio: lineas.filter((x) => !x.l.precio).length };
+  }
+
+  // Paquetes con los que comparar una estancia: los de la misma categoría que el elegido (o todos)
+  paquetesParaComparar(e) {
+    const actual = this.paquete(e.paquete);
+    return actual ? this.paquetes.filter((q) => q.categoria === actual.categoria) : this.paquetes;
+  }
+
+  totalPaquetes() {
+    return this.estancias.lista.reduce((t, e) => {
+      const p = this.paquete(e.paquete);
+      return t + (p ? this.costePaquete(p, e).total : 0);
+    }, 0);
+  }
+
   restaurarEjemplo() {
     this.siguienteId = 1;
     this.partidas = PARTIDAS_EJEMPLO.map((p) => this.nueva(p));
+    this.paquetesEjemplo();
     this.guardarEnDispositivo();
   }
 
@@ -110,22 +203,27 @@ class Presupuesto {
   }
 
   totales() {
-    const base = this.lineas().reduce((t, l) => t + l.importe, 0);
+    const generales = this.lineas().reduce((t, l) => t + l.importe, 0);
+    const paquetes = this.totalPaquetes();
+    const base = generales + paquetes;
     const iva = (base * (this.iva || 0)) / 100;
-    return { base, iva, total: base + iva };
+    return { generales, paquetes, base, iva, total: base + iva };
   }
 
   // ---------- Guardar ----------
 
   serializar() {
-    return { partidas: this.partidas.map((p) => ({ ...p })), iva: this.iva, obra: this.obra, siguienteId: this.siguienteId };
+    return { partidas: this.partidas.map((p) => ({ ...p })), paquetes: JSON.parse(JSON.stringify(this.paquetes)), iva: this.iva, obra: this.obra, siguienteId: this.siguienteId };
   }
   cargarDatos(d) {
     if (!d || !Array.isArray(d.partidas)) return false;
     this.partidas = d.partidas.map((p) => ({ ...p }));
+    if (Array.isArray(d.paquetes)) this.paquetes = JSON.parse(JSON.stringify(d.paquetes));
+    else if (!this.paquetes || !this.paquetes.length) this.paquetesEjemplo();
     this.iva = d.iva ?? 21;
     this.obra = d.obra || '';
-    this.siguienteId = Math.max(d.siguienteId || 1, ...this.partidas.map((p) => p.id + 1));
+    const ids = [...this.partidas.map((p) => p.id), ...this.paquetes.flatMap((q) => [q.id, ...q.lineas.map((l) => l.id)])];
+    this.siguienteId = Math.max(d.siguienteId || 1, ...ids.map((x) => x + 1));
     return true;
   }
   guardarEnDispositivo() {
